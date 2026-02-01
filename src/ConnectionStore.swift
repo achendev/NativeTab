@@ -13,15 +13,18 @@ class ConnectionStore: ObservableObject {
     }
     
     // --- Connection Logic ---
-    func add(name: String, command: String, groupID: UUID? = nil) {
-        connections.append(Connection(groupID: groupID, name: name, command: command))
+    func add(name: String, command: String, groupID: UUID? = nil, usePrefix: Bool = true, useSuffix: Bool = true) {
+        connections.append(Connection(groupID: groupID, name: name, command: command, usePrefix: usePrefix, useSuffix: useSuffix))
         save()
     }
     
-    func update(id: UUID, name: String, command: String) {
+    func update(id: UUID, name: String, command: String, groupID: UUID?, usePrefix: Bool, useSuffix: Bool) {
         if let index = connections.firstIndex(where: { $0.id == id }) {
             connections[index].name = name
             connections[index].command = command
+            connections[index].groupID = groupID
+            connections[index].usePrefix = usePrefix
+            connections[index].useSuffix = useSuffix
             save()
         }
     }
@@ -51,7 +54,6 @@ class ConnectionStore: ObservableObject {
         }
     }
     
-    // Standard delete: moves children to ungrouped
     func deleteGroup(id: UUID) {
         for i in 0..<connections.count {
             if connections[i].groupID == id {
@@ -62,7 +64,6 @@ class ConnectionStore: ObservableObject {
         save()
     }
     
-    // Recursive delete: deletes children and group
     func deleteGroupRecursive(id: UUID) {
         connections.removeAll { $0.groupID == id }
         groups.removeAll { $0.id == id }
@@ -72,24 +73,26 @@ class ConnectionStore: ObservableObject {
     // --- Import / Export Helpers ---
     
     func getSnapshot() -> ExportData {
-        // Map groups (UUID -> Name), omit isExpanded
         let expGroups = groups.map { ExportGroup(name: $0.name) }
         
-        // Map connections (GroupID -> GroupName)
         let expConnections = connections.map { conn -> ExportConnection in
             var groupName: String? = nil
             if let gID = conn.groupID, let g = groups.first(where: { $0.id == gID }) {
                 groupName = g.name
             }
-            return ExportConnection(name: conn.name, command: conn.command, group: groupName)
+            return ExportConnection(
+                name: conn.name,
+                command: conn.command,
+                group: groupName,
+                usePrefix: conn.usePrefix,
+                useSuffix: conn.useSuffix
+            )
         }
         
         return ExportData(groups: expGroups, connections: expConnections)
     }
     
     func restore(from data: ExportData) {
-        // MERGE STRATEGY: Add non-existing items, preserve existing ones.
-        
         // 1. Index Existing Groups by Name
         var groupNameMap: [String: UUID] = [:]
         for group in self.groups {
@@ -105,7 +108,7 @@ class ConnectionStore: ObservableObject {
             }
         }
         
-        // 3. Merge Connections (Append if missing)
+        // 3. Merge Connections
         for c in data.connections {
             // Resolve Group ID
             var gID: UUID? = nil
@@ -113,7 +116,7 @@ class ConnectionStore: ObservableObject {
                 gID = groupNameMap[gName]
             }
             
-            // Check for duplicates (Name + Command + Group must match to be considered duplicate)
+            // Check for duplicates
             let exists = self.connections.contains { existing in
                 return existing.name == c.name &&
                        existing.command == c.command &&
@@ -121,7 +124,13 @@ class ConnectionStore: ObservableObject {
             }
             
             if !exists {
-                self.connections.append(Connection(groupID: gID, name: c.name, command: c.command))
+                self.connections.append(Connection(
+                    groupID: gID,
+                    name: c.name,
+                    command: c.command,
+                    usePrefix: c.usePrefix ?? true,
+                    useSuffix: c.useSuffix ?? true
+                ))
             }
         }
         
@@ -146,6 +155,7 @@ class ConnectionStore: ObservableObject {
             return
         }
         
+        // Backward compatibility for really old version
         if let oldConnections = try? decoder.decode([Connection].self, from: data) {
             self.connections = oldConnections
             self.groups = []

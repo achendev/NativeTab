@@ -7,6 +7,9 @@ struct ConnectionListView: View {
     // Form Inputs
     @State private var newName = ""
     @State private var newCommand = ""
+    @State private var newGroupID: UUID? = nil
+    @State private var newUsePrefix = true
+    @State private var newUseSuffix = true
     
     // UI State
     @State private var showSettings = false
@@ -30,13 +33,11 @@ struct ConnectionListView: View {
     @AppStorage("hideCommandInList") private var hideCommandInList = true
     @AppStorage("smartFilter") private var smartFilter = true
     
-    // MARK: - Navigation Helpers (CRITICAL: Required for Keyboard Support)
-    // Returns the flat list of currently visible connections to support Up/Down arrow navigation
+    // MARK: - Navigation Helpers
     var visibleConnectionsForNav: [Connection] {
         if !searchText.isEmpty {
             return performFilter(searchText)
         }
-        // When not searching, visually ordered list (Groups -> Children -> Ungrouped)
         var list: [Connection] = []
         for group in store.groups {
             if group.isExpanded {
@@ -60,7 +61,6 @@ struct ConnectionListView: View {
                 isSearchFocused: $isSearchFocused
             )
             .onTapGesture { if selectedConnectionID != nil { resetForm() } }
-            // CRITICAL: Auto-select first result when searching
             .onChange(of: searchText) { text in
                 if !text.isEmpty {
                     let filtered = performFilter(text)
@@ -84,6 +84,10 @@ struct ConnectionListView: View {
                 selectedID: $selectedConnectionID,
                 name: $newName,
                 command: $newCommand,
+                groupID: $newGroupID,
+                usePrefix: $newUsePrefix,
+                useSuffix: $newUseSuffix,
+                groups: store.groups,
                 onSave: saveSelected,
                 onDelete: deleteSelected,
                 onAdd: addNew,
@@ -167,7 +171,6 @@ struct ConnectionListView: View {
             let ungrouped = store.connections.filter { $0.groupID == nil }
             ForEach(ungrouped) { conn in renderRow(conn) }
             
-            // Drop target for moving to root
             Spacer(minLength: 50)
                 .frame(maxWidth: .infinity)
                 .contentShape(Rectangle())
@@ -199,7 +202,6 @@ struct ConnectionListView: View {
     func performFilter(_ text: String) -> [Connection] {
         if smartFilter {
             let terms = text.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
-            // If no terms, match nothing or everything? searchText check handles empty.
             if terms.isEmpty { return [] }
             
             return store.connections.filter { conn in
@@ -225,6 +227,9 @@ struct ConnectionListView: View {
             selectedConnectionID = conn.id
             newName = conn.name
             newCommand = conn.command
+            newGroupID = conn.groupID
+            newUsePrefix = conn.usePrefix
+            newUseSuffix = conn.useSuffix
             highlightedConnectionID = conn.id
         }
         lastClickTime = now
@@ -232,8 +237,8 @@ struct ConnectionListView: View {
     }
     
     func launchConnection(_ conn: Connection) {
-        let prefix = UserDefaults.standard.string(forKey: "commandPrefix") ?? ""
-        let suffix = UserDefaults.standard.string(forKey: "commandSuffix") ?? ""
+        let prefix = conn.usePrefix ? (UserDefaults.standard.string(forKey: "commandPrefix") ?? "") : ""
+        let suffix = conn.useSuffix ? (UserDefaults.standard.string(forKey: "commandSuffix") ?? "") : ""
         let finalCommand = prefix + conn.command + suffix
         TerminalBridge.launch(command: finalCommand)
         searchText = ""
@@ -242,7 +247,7 @@ struct ConnectionListView: View {
     
     func saveSelected() {
         if let id = selectedConnectionID {
-            store.update(id: id, name: newName, command: newCommand)
+            store.update(id: id, name: newName, command: newCommand, groupID: newGroupID, usePrefix: newUsePrefix, useSuffix: newUseSuffix)
             resetForm()
         }
     }
@@ -256,7 +261,7 @@ struct ConnectionListView: View {
     
     func addNew() {
         if !newName.isEmpty && !newCommand.isEmpty {
-            store.add(name: newName, command: newCommand)
+            store.add(name: newName, command: newCommand, groupID: newGroupID, usePrefix: newUsePrefix, useSuffix: newUseSuffix)
             resetForm()
         }
     }
@@ -264,6 +269,9 @@ struct ConnectionListView: View {
     func resetForm() {
         newName = ""
         newCommand = ""
+        newGroupID = nil
+        newUsePrefix = true
+        newUseSuffix = true
         selectedConnectionID = nil
         lastClickedID = nil
     }
@@ -282,24 +290,19 @@ struct ConnectionListView: View {
     func setupOnAppear() {
         highlightedConnectionID = nil
         
-        // Ensure Search Field gets focus on active
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 self.isSearchFocused = true
             }
         }
         
-        // CRITICAL: Keyboard Navigation Implementation
-        // Handles Up/Down/Enter global events when app is active
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             guard !showSettings else { return event }
 
-            // --- GLOBAL SHORTCUT HANDLING WITHIN APP ---
             let defaults = UserDefaults.standard
             let targetKeyChar = defaults.string(forKey: "globalShortcutKey") ?? "n"
             let targetModifierStr = defaults.string(forKey: "globalShortcutModifier") ?? "command"
             
-            // Re-use logic from KeyboardInterceptor for consistency
             if let targetCode = KeyboardInterceptor.getKeyCode(for: targetKeyChar),
                event.keyCode == targetCode {
                 
@@ -321,10 +324,9 @@ struct ConnectionListView: View {
                     DispatchQueue.main.async {
                         self.isSearchFocused = true
                     }
-                    return nil // Swallow event
+                    return nil
                 }
             }
-            // -------------------------------------------
             
             let currentList = visibleConnectionsForNav
             
@@ -334,7 +336,7 @@ struct ConnectionListView: View {
                    let idx = currentList.firstIndex(where: { $0.id == current }) {
                     let nextIdx = min(idx + 1, currentList.count - 1)
                     highlightedConnectionID = currentList[nextIdx].id
-                    return nil // Stop propagation
+                    return nil
                 } else if !currentList.isEmpty {
                     highlightedConnectionID = currentList[0].id
                     return nil

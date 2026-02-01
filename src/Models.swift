@@ -20,6 +20,44 @@ struct Connection: Identifiable, Codable {
     var groupID: UUID? = nil
     var name: String
     var command: String
+    var usePrefix: Bool
+    var useSuffix: Bool
+    
+    // Init for new items
+    init(groupID: UUID? = nil, name: String, command: String, usePrefix: Bool = true, useSuffix: Bool = true) {
+        self.id = UUID()
+        self.groupID = groupID
+        self.name = name
+        self.command = command
+        self.usePrefix = usePrefix
+        self.useSuffix = useSuffix
+    }
+    
+    // Custom decoding to handle legacy JSON (where booleans are missing)
+    enum CodingKeys: String, CodingKey {
+        case id, groupID, name, command, usePrefix, useSuffix
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        groupID = try container.decodeIfPresent(UUID.self, forKey: .groupID)
+        name = try container.decode(String.self, forKey: .name)
+        command = try container.decode(String.self, forKey: .command)
+        // Default to true if keys are missing
+        usePrefix = try container.decodeIfPresent(Bool.self, forKey: .usePrefix) ?? true
+        useSuffix = try container.decodeIfPresent(Bool.self, forKey: .useSuffix) ?? true
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(groupID, forKey: .groupID)
+        try container.encode(name, forKey: .name)
+        try container.encode(command, forKey: .command)
+        try container.encode(usePrefix, forKey: .usePrefix)
+        try container.encode(useSuffix, forKey: .useSuffix)
+    }
 }
 
 // Data Wrapper for Internal Persistence
@@ -32,13 +70,14 @@ struct StoreData: Codable {
 
 struct ExportGroup: Codable {
     var name: String
-    // isExpanded removed for cleaner JSON; defaults to true on import
 }
 
 struct ExportConnection: Codable {
     var name: String
     var command: String
     var group: String? // Optional Group Name
+    var usePrefix: Bool? // Optional, default true
+    var useSuffix: Bool? // Optional, default true
 }
 
 struct ExportData: Codable {

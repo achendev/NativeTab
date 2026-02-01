@@ -4,6 +4,11 @@ struct ConnectionEditorView: View {
     @Binding var selectedID: UUID?
     @Binding var name: String
     @Binding var command: String
+    @Binding var groupID: UUID?
+    @Binding var usePrefix: Bool
+    @Binding var useSuffix: Bool
+    
+    var groups: [ConnectionGroup]
     
     // Actions
     var onSave: () -> Void
@@ -26,6 +31,45 @@ struct ConnectionEditorView: View {
             TextField("Name (e.g. Prod DB)", text: $name)
             TextField("Command (e.g. ssh user@1.2.3.4)", text: $command)
             
+            // Group Selector
+            HStack {
+                Text("Group:")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Picker("", selection: $groupID) {
+                    Text("Ungrouped").tag(Optional<UUID>.none)
+                    Divider()
+                    ForEach(groups) { group in
+                        Text(group.name).tag(Optional(group.id))
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.top, 4)
+
+            // Options: Prefix / Suffix
+            HStack(spacing: 20) {
+                Toggle(isOn: $usePrefix) {
+                    Text("Use Prefix").font(.caption)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .fixedSize()
+                
+                Toggle(isOn: $useSuffix) {
+                    Text("Use Suffix").font(.caption)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .fixedSize()
+                
+                Spacer()
+            }
+            .padding(.top, 4)
+            
+            Spacer().frame(height: 10)
+
             if selectedID != nil {
                 HStack(spacing: 12) {
                     Button("Save", action: onSave)
