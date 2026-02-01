@@ -86,7 +86,7 @@ struct ConnectionListView: View {
             }
             .padding()
             .background(Color(NSColor.controlBackgroundColor))
-            .contentShape(Rectangle()) // Ensure the whole header captures taps
+            .contentShape(Rectangle()) 
             .onTapGesture {
                 // Clicking header cancels edit
                 if selectedConnectionID != nil {
@@ -96,64 +96,75 @@ struct ConnectionListView: View {
 
             Divider()
 
-            List {
-                ForEach(store.connections) { conn in
-                    HStack(spacing: 0) {
-                        // --- INTERACTIVE ROW AREA (Name + Spacer) ---
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text(conn.name)
-                                    .font(.headline)
-                                    .foregroundColor(selectedConnectionID == conn.id ? .accentColor : .primary)
-                                
-                                if !hideCommandInList {
-                                    Text(conn.command)
-                                        .font(.caption)
-                                        .foregroundColor(.gray)
+            // List Area
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(store.connections) { conn in
+                        VStack(spacing: 0) {
+                            HStack(spacing: 0) {
+                                // --- INTERACTIVE ROW AREA ---
+                                // Wrapped in a Plain Button to support "Click-Through" on inactive windows
+                                Button(action: {
+                                    let now = Date()
+                                    if lastClickedID == conn.id && now.timeIntervalSince(lastClickTime) < 0.3 {
+                                        // Double Click detected -> Connect
+                                        launchConnection(conn)
+                                    } else {
+                                        // Single Click -> Edit Mode (Instant)
+                                        selectedConnectionID = conn.id
+                                        newName = conn.name
+                                        newCommand = conn.command
+                                    }
+                                    
+                                    // Update State
+                                    lastClickTime = now
+                                    lastClickedID = conn.id
+                                }) {
+                                    HStack {
+                                        VStack(alignment: .leading) {
+                                            Text(conn.name)
+                                                .font(.headline)
+                                                .foregroundColor(selectedConnectionID == conn.id ? .accentColor : .primary)
+                                            
+                                            if !hideCommandInList {
+                                                Text(conn.command)
+                                                    .font(.caption)
+                                                    .foregroundColor(.gray)
+                                            }
+                                        }
+                                        Spacer()
+                                    }
+                                    .contentShape(Rectangle()) // Ensures the whole area is clickable within the button
                                 }
-                            }
-                            Spacer()
-                        }
-                        .contentShape(Rectangle()) // Ensures the Spacer is also clickable
-                        .onHover { hovering in
-                            if hovering {
-                                NSCursor.pointingHand.push()
-                            } else {
-                                NSCursor.pop()
-                            }
-                        }
-                        // Manual Double Click Logic to prevent Single Click delay
-                        .onTapGesture {
-                            let now = Date()
-                            if lastClickedID == conn.id && now.timeIntervalSince(lastClickTime) < 0.3 {
-                                // Double Click detected -> Connect
-                                launchConnection(conn)
-                            } else {
-                                // Single Click -> Edit Mode (Instant)
-                                selectedConnectionID = conn.id
-                                newName = conn.name
-                                newCommand = conn.command
-                            }
-                            
-                            // Update State
-                            lastClickTime = now
-                            lastClickedID = conn.id
-                        }
+                                .buttonStyle(.plain) // Removes standard button chrome
+                                .onHover { hovering in
+                                    if hovering {
+                                        NSCursor.pointingHand.push()
+                                    } else {
+                                        NSCursor.pop()
+                                    }
+                                }
 
-                        // --- CONNECT BUTTON ---
-                        Button("Connect") {
-                            launchConnection(conn)
+                                // --- CONNECT BUTTON ---
+                                Button("Connect") {
+                                    launchConnection(conn)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .padding(.leading, 8)
+                            }
+                            .padding(.vertical, 6)
+                            .padding(.horizontal, 12)
+                            
+                            Divider()
                         }
-                        .buttonStyle(.borderedProminent)
-                        .padding(.leading, 8)
                     }
-                    .padding(.vertical, 4)
                 }
-                .onDelete(perform: store.remove)
+                .frame(maxWidth: .infinity)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(NSColor.controlBackgroundColor))
             .onTapGesture {
-                // Clicking empty space in the List cancels edit
-                // Note: Tapping a row is handled by the row's gesture first
+                // Clicking empty space in the ScrollView cancels edit
                 if selectedConnectionID != nil {
                     resetForm()
                 }
@@ -161,6 +172,7 @@ struct ConnectionListView: View {
             
             Divider()
             
+            // Footer / Edit Form
             VStack(alignment: .leading) {
                 HStack {
                     Text(selectedConnectionID == nil ? "New Connection" : "Edit Connection")
@@ -214,7 +226,6 @@ struct ConnectionListView: View {
             }
             .padding()
             .background(Color(NSColor.controlBackgroundColor))
-            // No onTapGesture here, so clicks in the form DO NOT cancel editing
         }
         .sheet(isPresented: $showSettings) {
             SettingsView()
