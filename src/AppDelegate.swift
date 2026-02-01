@@ -35,7 +35,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered, defer: false)
         window.center()
         window.setFrameAutosaveName("Main Window")
-        window.title = "MTTerminal Wrapper"
+        window.title = "NativeTab"
         window.contentView = NSHostingView(rootView: contentView)
         window.makeKeyAndOrderFront(nil)
         
@@ -48,7 +48,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         keyboardInterceptor = KeyboardInterceptor()
         keyboardInterceptor?.start()
         
-        print("MTTerminal Wrapper Started")
+        print("NativeTab Started")
         
         // Request Accessibility permissions check
         let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String : true]
@@ -59,8 +59,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             print("ERROR: Accessibility permissions NOT granted.")
             print("       1. Open System Settings -> Privacy & Security -> Accessibility")
-            print("       2. Remove any old entries for 'MTTerminalWrapper'")
-            print("       3. Drag the new ./bin/MTTerminalWrapper executable into the list")
+            print("       2. Remove any old entries for 'NativeTab'")
+            print("       3. Drag the new ./bin/NativeTab executable into the list")
             print("       4. Restart this app")
         }
     }
