@@ -27,10 +27,10 @@ struct ConnectionListHeader: View {
                 
                 // Import/Export Menu
                 Menu {
-                    Button("Import JSON...") {
+                    Button("Import Profiles") {
                         isImporting = true
                     }
-                    Button("Export JSON...") {
+                    Button("Export Profiles") {
                         documentToExport = ConnectionsDocument(exportData: store.getSnapshot())
                         isExporting = true
                     }

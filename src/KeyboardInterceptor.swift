@@ -1,6 +1,9 @@
 import Cocoa
 import ApplicationServices
 
+// Global reference to the keyboard event tap for use in the callback
+private var globalKeyboardEventTap: CFMachPort?
+
 class KeyboardInterceptor {
     var eventTap: CFMachPort?
     var runLoopSource: CFRunLoopSource?
@@ -62,6 +65,8 @@ class KeyboardInterceptor {
     func start() {
         // Listen for KeyDown events
         let eventMask = (1 << CGEventType.keyDown.rawValue)
+        
+        // Create the tap
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
@@ -75,6 +80,7 @@ class KeyboardInterceptor {
         }
 
         self.eventTap = tap
+        globalKeyboardEventTap = tap  // Store globally for callback access
         self.runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         
         if let rls = self.runLoopSource {
@@ -91,39 +97,64 @@ class KeyboardInterceptor {
                 CFRunLoopRemoveSource(CFRunLoopGetCurrent(), rls, .commonModes)
             }
         }
+        globalKeyboardEventTap = nil  // Clear global reference
+        eventTap = nil
+        runLoopSource = nil
     }
 }
 
 // Global C-function callback
 func keyboardEventCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, refcon: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
     
+    // Handle special event types - tap may be disabled by system
+    if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+        // Re-enable the tap using the global reference
+        if let tap = globalKeyboardEventTap {
+            CGEvent.tapEnable(tap: tap, enable: true)
+        }
+        return Unmanaged.passUnretained(event)
+    }
+    
+    // Only process keyDown events
+    guard type == .keyDown else {
+        return Unmanaged.passUnretained(event)
+    }
+    
+    // OPTIMIZATION: Check modifier keys FIRST
+    // All global shortcuts require a modifier (Command, Control, or Option)
+    // If no modifier is pressed, immediately pass through without any processing
+    let flags = event.flags
+    let hasModifier = flags.contains(.maskCommand) || flags.contains(.maskControl) || flags.contains(.maskAlternate)
+    
+    if !hasModifier {
+        // No modifier key pressed - pass through immediately
+        // This ensures Enter, regular typing, etc. go through with zero interference
+        return Unmanaged.passUnretained(event)
+    }
+    
+    // From here, we know a modifier key IS pressed
     let defaults = UserDefaults.standard
     let globalAnywhere = defaults.bool(forKey: "globalShortcutAnywhere")
 
-    // 1. Check Scope: If NOT global anywhere, require Terminal focus
+    // Check Scope: If NOT global anywhere, require Terminal focus
     if !globalAnywhere {
         guard let frontApp = NSWorkspace.shared.frontmostApplication,
               frontApp.bundleIdentifier == "com.apple.Terminal" else {
-            // If we are NOT in Terminal, we might be in our own app.
-            // We pass it through so our app can handle it normally.
+            // Not in Terminal, pass through for our app to handle
             return Unmanaged.passUnretained(event)
         }
     }
-    // If globalAnywhere is true, we proceed regardless of frontApp
 
     let targetKeyChar = defaults.string(forKey: "globalShortcutKey") ?? "n"
     let targetModifierStr = defaults.string(forKey: "globalShortcutModifier") ?? "command"
     
-    // 2. Get target KeyCode
+    // Get target KeyCode
     guard let targetKeyCode = KeyboardInterceptor.getKeyCode(for: targetKeyChar) else {
         return Unmanaged.passUnretained(event)
     }
     
-    // 3. Check Modifiers & KeyCode
-    let flags = event.flags
+    // Check if the specific modifier matches (exclusive - only that modifier, not others)
     var modifierMatch = false
-    
-    // Enforce exclusive modifier (e.g. if Command is set, Ctrl shouldn't be pressed)
     switch targetModifierStr {
         case "command": 
             modifierMatch = flags.contains(.maskCommand) && !flags.contains(.maskControl) && !flags.contains(.maskAlternate)
@@ -136,15 +167,14 @@ func keyboardEventCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGE
     }
     
     if modifierMatch && event.getIntegerValueField(.keyboardEventKeycode) == Int64(targetKeyCode) {
-        // MATCH DETECTED!
+        // MATCH DETECTED! This is the global shortcut.
         
-        // FIX: If the app is ALREADY active, do NOT swallow the event.
-        // Pass it through so the Local Event Monitor in the View can handle it (reset focus, clear form).
+        // If NativeTab is already active, pass through to let local monitor handle it
         if NSApp.isActive {
             return Unmanaged.passUnretained(event)
         }
         
-        // Otherwise, wake the app and swallow the event
+        // Otherwise, activate NativeTab and swallow the event
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
         }

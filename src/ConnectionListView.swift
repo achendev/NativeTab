@@ -259,7 +259,7 @@ struct ConnectionListView: View {
         
         // Build terminal name prefix if enabled
         let changeTerminalName = UserDefaults.standard.bool(forKey: "changeTerminalName")
-        let terminalNamePrefix = changeTerminalName ? "echo -ne \"\\033]1;\(conn.name)\\007\" ; clear ;" : ""
+        let terminalNamePrefix = changeTerminalName ? "printf '\\033]0;\(conn.name)\\007'; clear; " : ""
         
         let prefix = conn.usePrefix ? (UserDefaults.standard.string(forKey: "commandPrefix") ?? "") : ""
         let suffix = conn.useSuffix ? (UserDefaults.standard.string(forKey: "commandSuffix") ?? "") : ""
@@ -393,7 +393,12 @@ struct ConnectionListView: View {
             case 36: // Enter
                 if selectedConnectionID == nil, let current = highlightedConnectionID,
                    let conn = currentList.first(where: { $0.id == current }) {
-                    launchConnection(conn)
+                    // Delay launch to ensure Enter key is fully released
+                    // before Terminal becomes active. This prevents the first Enter 
+                    // in Terminal from being ignored.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        self.launchConnection(conn)
+                    }
                     return nil
                 }
             default: break
