@@ -35,6 +35,20 @@ struct ConnectionListView: View {
     @AppStorage("smartFilter") private var smartFilter = true
     
     // MARK: - Navigation Helpers
+    
+    // Helper to get connections sorted by Last Used (Descending)
+    func getSortedConnections(groupID: UUID?) -> [Connection] {
+        let list = store.connections.filter { $0.groupID == groupID }
+        return list.sorted {
+            let d1 = $0.lastUsed ?? Date.distantPast
+            let d2 = $1.lastUsed ?? Date.distantPast
+            if d1 != d2 {
+                return d1 > d2 // Most recently used first
+            }
+            return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
+    }
+    
     var visibleConnectionsForNav: [Connection] {
         if !searchText.isEmpty {
             return performFilter(searchText)
@@ -42,10 +56,11 @@ struct ConnectionListView: View {
         var list: [Connection] = []
         for group in store.groups {
             if group.isExpanded {
-                list.append(contentsOf: store.connections.filter { $0.groupID == group.id })
+                // Use sorted list for navigation consistency
+                list.append(contentsOf: getSortedConnections(groupID: group.id))
             }
         }
-        list.append(contentsOf: store.connections.filter { $0.groupID == nil })
+        list.append(contentsOf: getSortedConnections(groupID: nil))
         return list
     }
     
@@ -147,7 +162,7 @@ struct ConnectionListView: View {
         ForEach(store.groups) { group in
             GroupSectionView(
                 group: group,
-                connections: store.connections.filter { $0.groupID == group.id },
+                connections: getSortedConnections(groupID: group.id), // USE SORTED
                 highlightedID: highlightedConnectionID,
                 selectedID: selectedConnectionID,
                 hideCommand: hideCommandInList,
@@ -169,7 +184,7 @@ struct ConnectionListView: View {
     
     var ungroupDropArea: some View {
         VStack(spacing: 0) {
-            let ungrouped = store.connections.filter { $0.groupID == nil }
+            let ungrouped = getSortedConnections(groupID: nil) // USE SORTED
             ForEach(ungrouped) { conn in renderRow(conn) }
             
             Spacer(minLength: 50)
@@ -211,11 +226,13 @@ struct ConnectionListView: View {
                     conn.command.localizedCaseInsensitiveContains(term)
                 }
             }
+            .sorted { ($0.lastUsed ?? Date.distantPast) > ($1.lastUsed ?? Date.distantPast) }
         } else {
             return store.connections.filter {
                 $0.name.localizedCaseInsensitiveContains(text) ||
                 $0.command.localizedCaseInsensitiveContains(text)
             }
+            .sorted { ($0.lastUsed ?? Date.distantPast) > ($1.lastUsed ?? Date.distantPast) }
         }
     }
 
@@ -238,6 +255,8 @@ struct ConnectionListView: View {
     }
     
     func launchConnection(_ conn: Connection) {
+        store.touch(id: conn.id) // UPDATE LAST USED
+        
         let prefix = conn.usePrefix ? (UserDefaults.standard.string(forKey: "commandPrefix") ?? "") : ""
         let suffix = conn.useSuffix ? (UserDefaults.standard.string(forKey: "commandSuffix") ?? "") : ""
         let finalCommand = prefix + conn.command + suffix
@@ -298,15 +317,10 @@ struct ConnectionListView: View {
         }
         
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            let defaults = UserDefaults.standard
-            let isDebug = defaults.bool(forKey: "debugMode")
-            
-            // Debug ALL keys to ensure monitor is working
-            if isDebug { print("DEBUG: LocalMonitor received key: \(event.keyCode)") }
-
             // 1. GLOBAL SHORTCUT HANDLING WITHIN APP (Priority High)
             // Checked *before* "showSettings" guard to ensure we can exit settings/edit modes instantly
             
+            let defaults = UserDefaults.standard
             let targetKeyChar = defaults.string(forKey: "globalShortcutKey") ?? "n"
             let targetModifierStr = defaults.string(forKey: "globalShortcutModifier") ?? "command"
             
@@ -328,25 +342,17 @@ struct ConnectionListView: View {
                 }
                 
                 if modifierMatch {
-                    if isDebug { print("DEBUG: Local KeyDown detected matching Shortcut! KeyCode: \(event.keyCode)") }
-
                     // ACTION: Reset state and focus search
-                    
-                    // Forcefully clear Cocoa focus to ensure SwiftUI binding can take over
-                    if isDebug { print("DEBUG: Forcing NSApp.keyWindow makeFirstResponder(nil)") }
                     NSApp.keyWindow?.makeFirstResponder(nil)
                     
                     DispatchQueue.main.async {
-                        if isDebug { print("DEBUG: Resetting Form and Selection") }
                         self.showSettings = false        // Close settings if open
                         self.selectedConnectionID = nil  // Deselect current row (exit edit mode)
                         self.resetForm()                 // Clear form
                         
                         // Toggle focus state to force update
                         self.isSearchFocused = false
-                        
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                            if isDebug { print("DEBUG: Setting isSearchFocused = true") }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                             self.isSearchFocused = true
                         }
                     }

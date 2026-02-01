@@ -29,6 +29,14 @@ class ConnectionStore: ObservableObject {
         }
     }
     
+    // Update the lastUsed timestamp
+    func touch(id: UUID) {
+        if let index = connections.firstIndex(where: { $0.id == id }) {
+            connections[index].lastUsed = Date()
+            save()
+        }
+    }
+    
     func moveConnection(_ connectionID: UUID, toGroup groupID: UUID?) {
         if let index = connections.firstIndex(where: { $0.id == connectionID }) {
             connections[index].groupID = groupID

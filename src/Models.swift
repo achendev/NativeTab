@@ -22,20 +22,22 @@ struct Connection: Identifiable, Codable {
     var command: String
     var usePrefix: Bool
     var useSuffix: Bool
+    var lastUsed: Date? // Timestamp for sorting
     
     // Init for new items
-    init(groupID: UUID? = nil, name: String, command: String, usePrefix: Bool = true, useSuffix: Bool = true) {
+    init(groupID: UUID? = nil, name: String, command: String, usePrefix: Bool = true, useSuffix: Bool = true, lastUsed: Date? = nil) {
         self.id = UUID()
         self.groupID = groupID
         self.name = name
         self.command = command
         self.usePrefix = usePrefix
         self.useSuffix = useSuffix
+        self.lastUsed = lastUsed
     }
     
-    // Custom decoding to handle legacy JSON (where booleans are missing)
+    // Custom decoding to handle legacy JSON
     enum CodingKeys: String, CodingKey {
-        case id, groupID, name, command, usePrefix, useSuffix
+        case id, groupID, name, command, usePrefix, useSuffix, lastUsed
     }
     
     init(from decoder: Decoder) throws {
@@ -47,6 +49,8 @@ struct Connection: Identifiable, Codable {
         // Default to true if keys are missing
         usePrefix = try container.decodeIfPresent(Bool.self, forKey: .usePrefix) ?? true
         useSuffix = try container.decodeIfPresent(Bool.self, forKey: .useSuffix) ?? true
+        // Optional date
+        lastUsed = try container.decodeIfPresent(Date.self, forKey: .lastUsed)
     }
     
     func encode(to encoder: Encoder) throws {
@@ -57,6 +61,7 @@ struct Connection: Identifiable, Codable {
         try container.encode(command, forKey: .command)
         try container.encode(usePrefix, forKey: .usePrefix)
         try container.encode(useSuffix, forKey: .useSuffix)
+        try container.encode(lastUsed, forKey: .lastUsed)
     }
 }
 
