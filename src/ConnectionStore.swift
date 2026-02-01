@@ -51,12 +51,20 @@ class ConnectionStore: ObservableObject {
         }
     }
     
+    // Standard delete: moves children to ungrouped
     func deleteGroup(id: UUID) {
         for i in 0..<connections.count {
             if connections[i].groupID == id {
                 connections[i].groupID = nil
             }
         }
+        groups.removeAll { $0.id == id }
+        save()
+    }
+    
+    // Recursive delete: deletes children and group
+    func deleteGroupRecursive(id: UUID) {
+        connections.removeAll { $0.groupID == id }
         groups.removeAll { $0.id == id }
         save()
     }

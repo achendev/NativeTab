@@ -17,9 +17,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             "commandSuffix": " && exit",
             // UI Defaults
             "hideCommandInList": true,
+            "smartFilter": true,
             // Global Shortcut
             "globalShortcutKey": "n",
-            "globalShortcutModifier": "command"
+            "globalShortcutModifier": "command",
+            "globalShortcutAnywhere": false
         ])
 
         // 1. CRITICAL: Force the app to be a regular "Foreground" app so it can accept keyboard input
@@ -38,8 +40,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.title = "NativeTab"
         window.contentView = NSHostingView(rootView: contentView)
         window.makeKeyAndOrderFront(nil)
-        
-        // Standard window level (removed .floating to allow window to go behind Terminal)
         
         // Start Interceptors
         mouseInterceptor = MouseInterceptor()

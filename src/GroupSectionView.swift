@@ -13,7 +13,8 @@ struct GroupSectionView: View {
     
     // Callbacks
     let onToggleExpand: (UUID) -> Void
-    let onDeleteGroup: (UUID) -> Void
+    // Updated signature: (GroupID, IsRecursive/ShiftPressed)
+    let onDeleteGroup: (UUID, Bool) -> Void
     let onMoveConnection: (UUID, UUID?) -> Void
     let onRowTap: (Connection) -> Void
     let onRowConnect: (Connection) -> Void
@@ -32,12 +33,17 @@ struct GroupSectionView: View {
                 
                 Spacer()
                 
-                Button(action: { onDeleteGroup(group.id) }) {
+                Button(action: { 
+                    // Detect Shift key for recursive delete
+                    let isShift = NSEvent.modifierFlags.contains(.shift)
+                    onDeleteGroup(group.id, isShift) 
+                }) {
                     Image(systemName: "trash")
                         .font(.caption)
                         .foregroundColor(.gray)
                 }
                 .buttonStyle(.borderless)
+                .help("Delete Group (Hold Shift to delete contents too)")
             }
             .padding(.vertical, 6)
             .padding(.horizontal, 10)
@@ -47,7 +53,6 @@ struct GroupSectionView: View {
                 onToggleExpand(group.id)
             }
             // DROP TARGET: Add Connection to Group
-            // Fixed: passed nil to isTargeted to resolve compiler error
             .onDrop(of: [UTType.text, UTType.plainText], isTargeted: nil) { providers in
                 if UserDefaults.standard.bool(forKey: "debugMode") {
                     print("DEBUG: DROP EVENT - Group '\(group.name)' received items")

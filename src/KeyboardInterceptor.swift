@@ -97,13 +97,18 @@ class KeyboardInterceptor {
 // Global C-function callback
 func keyboardEventCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, refcon: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
     
-    // 1. Only intercept if Terminal is the frontmost app
-    guard let frontApp = NSWorkspace.shared.frontmostApplication,
-          frontApp.bundleIdentifier == "com.apple.Terminal" else {
-        return Unmanaged.passUnretained(event)
-    }
-
     let defaults = UserDefaults.standard
+    let globalAnywhere = defaults.bool(forKey: "globalShortcutAnywhere")
+
+    // 1. Check Scope: If NOT global anywhere, require Terminal focus
+    if !globalAnywhere {
+        guard let frontApp = NSWorkspace.shared.frontmostApplication,
+              frontApp.bundleIdentifier == "com.apple.Terminal" else {
+            return Unmanaged.passUnretained(event)
+        }
+    }
+    // If globalAnywhere is true, we proceed regardless of frontApp
+
     let targetKeyChar = defaults.string(forKey: "globalShortcutKey") ?? "n"
     let targetModifierStr = defaults.string(forKey: "globalShortcutModifier") ?? "command"
     
@@ -134,7 +139,7 @@ func keyboardEventCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGE
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
         }
-        return nil // Swallow the event (Terminal won't receive Cmd+N)
+        return nil // Swallow the event
     }
     
     return Unmanaged.passUnretained(event)

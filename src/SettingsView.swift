@@ -11,10 +11,12 @@ struct SettingsView: View {
     
     // UI Settings
     @AppStorage("hideCommandInList") private var hideCommandInList = true
+    @AppStorage("smartFilter") private var smartFilter = true
     
     // Shortcut Settings
     @AppStorage("globalShortcutKey") private var globalShortcutKey = "n"
     @AppStorage("globalShortcutModifier") private var globalShortcutModifier = "command"
+    @AppStorage("globalShortcutAnywhere") private var globalShortcutAnywhere = false
     
     @Environment(\.presentationMode) var presentationMode
 
@@ -27,9 +29,13 @@ struct SettingsView: View {
             
             // Group 1: Shortcut
             VStack(alignment: .leading, spacing: 8) {
-                Text("Global Activation Shortcut (From Terminal)")
+                Text("Global Activation Shortcut")
                     .font(.subheadline)
                     .fontWeight(.semibold)
+                
+                Toggle("System-wide (Global)", isOn: $globalShortcutAnywhere)
+                    .toggleStyle(.switch)
+                    .help("If enabled, the shortcut works from any app, not just Terminal.")
                 
                 HStack {
                     Picker("", selection: $globalShortcutModifier) {
@@ -78,8 +84,14 @@ struct SettingsView: View {
             Divider()
             
             // Group 3: UI Preferences
-            Toggle("Hide Command in List", isOn: $hideCommandInList)
-                .toggleStyle(.switch)
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle("Hide Command in List", isOn: $hideCommandInList)
+                    .toggleStyle(.switch)
+                
+                Toggle("Smart Search (Multi-word)", isOn: $smartFilter)
+                    .toggleStyle(.switch)
+                    .help("If enabled, 'db prod' matches 'prod db' (AND logic per word).")
+            }
             
             // Group 4: Mouse Behavior
             VStack(alignment: .leading, spacing: 10) {

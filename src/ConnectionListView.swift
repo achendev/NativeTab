@@ -28,15 +28,13 @@ struct ConnectionListView: View {
     @State private var lastClickedID: UUID? = nil
     
     @AppStorage("hideCommandInList") private var hideCommandInList = true
+    @AppStorage("smartFilter") private var smartFilter = true
     
     // MARK: - Navigation Helpers (CRITICAL: Required for Keyboard Support)
     // Returns the flat list of currently visible connections to support Up/Down arrow navigation
     var visibleConnectionsForNav: [Connection] {
         if !searchText.isEmpty {
-            return store.connections.filter {
-                $0.name.localizedCaseInsensitiveContains(searchText) ||
-                $0.command.localizedCaseInsensitiveContains(searchText)
-            }
+            return performFilter(searchText)
         }
         // When not searching, visually ordered list (Groups -> Children -> Ungrouped)
         var list: [Connection] = []
@@ -65,10 +63,7 @@ struct ConnectionListView: View {
             // CRITICAL: Auto-select first result when searching
             .onChange(of: searchText) { text in
                 if !text.isEmpty {
-                    let filtered = store.connections.filter {
-                        $0.name.localizedCaseInsensitiveContains(text) ||
-                        $0.command.localizedCaseInsensitiveContains(text)
-                    }
+                    let filtered = performFilter(text)
                     if let first = filtered.first {
                         highlightedConnectionID = first.id
                     } else {
@@ -135,10 +130,7 @@ struct ConnectionListView: View {
     
     var searchResultList: some View {
         Group {
-            let filtered = store.connections.filter {
-                $0.name.localizedCaseInsensitiveContains(searchText) ||
-                $0.command.localizedCaseInsensitiveContains(searchText)
-            }
+            let filtered = performFilter(searchText)
             ForEach(filtered) { conn in renderRow(conn) }
             if filtered.isEmpty {
                 Text("No matching profiles").foregroundColor(.gray).padding()
@@ -156,7 +148,13 @@ struct ConnectionListView: View {
                 hideCommand: hideCommandInList,
                 searchText: searchText,
                 onToggleExpand: { store.toggleGroupExpansion($0) },
-                onDeleteGroup: { id in groupToDelete = GroupAlertItem(id: id) },
+                onDeleteGroup: { id, isRecursive in 
+                    if isRecursive {
+                        store.deleteGroupRecursive(id: id)
+                    } else {
+                        groupToDelete = GroupAlertItem(id: id) 
+                    }
+                },
                 onMoveConnection: { store.moveConnection($0, toGroup: $1) },
                 onRowTap: handleRowTap,
                 onRowConnect: launchConnection
@@ -195,6 +193,27 @@ struct ConnectionListView: View {
             onTap: { handleRowTap(conn) },
             onConnect: { launchConnection(conn) }
         )
+    }
+    
+    // MARK: - Filter Logic
+    func performFilter(_ text: String) -> [Connection] {
+        if smartFilter {
+            let terms = text.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+            // If no terms, match nothing or everything? searchText check handles empty.
+            if terms.isEmpty { return [] }
+            
+            return store.connections.filter { conn in
+                terms.allSatisfy { term in
+                    conn.name.localizedCaseInsensitiveContains(term) ||
+                    conn.command.localizedCaseInsensitiveContains(term)
+                }
+            }
+        } else {
+            return store.connections.filter {
+                $0.name.localizedCaseInsensitiveContains(text) ||
+                $0.command.localizedCaseInsensitiveContains(text)
+            }
+        }
     }
 
     // MARK: - Actions
@@ -274,6 +293,39 @@ struct ConnectionListView: View {
         // Handles Up/Down/Enter global events when app is active
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             guard !showSettings else { return event }
+
+            // --- GLOBAL SHORTCUT HANDLING WITHIN APP ---
+            let defaults = UserDefaults.standard
+            let targetKeyChar = defaults.string(forKey: "globalShortcutKey") ?? "n"
+            let targetModifierStr = defaults.string(forKey: "globalShortcutModifier") ?? "command"
+            
+            // Re-use logic from KeyboardInterceptor for consistency
+            if let targetCode = KeyboardInterceptor.getKeyCode(for: targetKeyChar),
+               event.keyCode == targetCode {
+                
+                let flags = event.modifierFlags
+                var modifierMatch = false
+                
+                switch targetModifierStr {
+                    case "command": 
+                        modifierMatch = flags.contains(.command) && !flags.contains(.control) && !flags.contains(.option)
+                    case "control": 
+                        modifierMatch = flags.contains(.control) && !flags.contains(.command) && !flags.contains(.option)
+                    case "option":  
+                        modifierMatch = flags.contains(.option) && !flags.contains(.command) && !flags.contains(.control)
+                    default: 
+                        modifierMatch = false
+                }
+                
+                if modifierMatch {
+                    DispatchQueue.main.async {
+                        self.isSearchFocused = true
+                    }
+                    return nil // Swallow event
+                }
+            }
+            // -------------------------------------------
+            
             let currentList = visibleConnectionsForNav
             
             switch event.keyCode {
