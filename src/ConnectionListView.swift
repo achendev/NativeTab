@@ -257,9 +257,13 @@ struct ConnectionListView: View {
     func launchConnection(_ conn: Connection) {
         store.touch(id: conn.id) // UPDATE LAST USED
         
+        // Build terminal name prefix if enabled
+        let changeTerminalName = UserDefaults.standard.bool(forKey: "changeTerminalName")
+        let terminalNamePrefix = changeTerminalName ? "echo -ne \"\\033]1;\(conn.name)\\007\" ; clear ;" : ""
+        
         let prefix = conn.usePrefix ? (UserDefaults.standard.string(forKey: "commandPrefix") ?? "") : ""
         let suffix = conn.useSuffix ? (UserDefaults.standard.string(forKey: "commandSuffix") ?? "") : ""
-        let finalCommand = prefix + conn.command + suffix
+        let finalCommand = terminalNamePrefix + prefix + conn.command + suffix
         TerminalBridge.launch(command: finalCommand)
         searchText = ""
         highlightedConnectionID = nil

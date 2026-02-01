@@ -95,7 +95,18 @@ PLIST
 
 # --- 6. Sign Code ---
 echo "▶ Signing..."
-codesign --force --deep --sign - "$APP_BUNDLE"
+# Use Apple Development certificate for consistent signing (accessibility permissions persist across rebuilds)
+# Find the first available Apple Development identity (use SHA-1 hash to avoid ambiguity)
+SIGN_HASH=$(security find-identity -v -p codesigning 2>/dev/null | grep "Apple Development" | head -1 | awk '{print $2}')
+
+if [ -n "$SIGN_HASH" ]; then
+    SIGN_NAME=$(security find-identity -v -p codesigning 2>/dev/null | grep "$SIGN_HASH" | sed 's/.*"\(.*\)".*/\1/')
+    echo "   Using: $SIGN_NAME"
+    codesign --force --deep --sign "$SIGN_HASH" "$APP_BUNDLE"
+else
+    echo "   No Apple Development certificate found, using ad-hoc signing"
+    codesign --force --deep --sign - "$APP_BUNDLE"
+fi
 
 echo "--------------------------------------------------------"
 echo "✅  Build Complete: $APP_BUNDLE"

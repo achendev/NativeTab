@@ -2,6 +2,14 @@ import Foundation
 
 struct TerminalBridge {
     static func launch(command: String) {
+        // Escape the command for AppleScript string literals
+        // AppleScript uses backslash for escaping, so we need to:
+        // 1. Escape backslashes first (\ -> \\)
+        // 2. Escape double quotes (" -> \")
+        let escapedCommand = command
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        
         // AppleScript to open a new tab and run the command
         // If Terminal is not running, it opens. If running, it makes a new tab.
         let scriptSource = """
@@ -13,7 +21,7 @@ struct TerminalBridge {
                 do script "" -- Fallback if keystroke fails (e.g. no window open)
             end try
             delay 0.2
-            do script "\(command)" in front window
+            do script "\(escapedCommand)" in front window
         end tell
         """
         

@@ -8,6 +8,7 @@ struct SettingsView: View {
     // Command Injection Settings
     @AppStorage("commandPrefix") private var commandPrefix = "unset HISTFILE ; clear ; "
     @AppStorage("commandSuffix") private var commandSuffix = " && exit"
+    @AppStorage("changeTerminalName") private var changeTerminalName = true
     
     // UI Settings
     @AppStorage("hideCommandInList") private var hideCommandInList = true
@@ -60,7 +61,7 @@ struct SettingsView: View {
             
             Divider()
             
-            // Group 2: Command Wrappers
+            // Command Injection Settings
             VStack(alignment: .leading, spacing: 8) {
                 Text("Command Execution Wrappers")
                     .font(.subheadline)
@@ -79,6 +80,10 @@ struct SettingsView: View {
                     TextField("e.g. && exit", text: $commandSuffix)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
                 }
+                
+                Toggle("Set Terminal Tab Name", isOn: $changeTerminalName)
+                    .toggleStyle(.switch)
+                    .help("Sets the Terminal tab title to the connection name before running the command.")
             }
             
             Divider()

@@ -18,6 +18,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // UI Defaults
             "hideCommandInList": true,
             "smartFilter": true,
+            // Terminal Tab Name
+            "changeTerminalName": true,
             // Global Shortcut
             "globalShortcutKey": "n",
             "globalShortcutModifier": "command",
@@ -85,6 +87,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ aNotification: Notification) {
         mouseInterceptor?.stop()
         keyboardInterceptor?.stop()
+    }
+    
+    // Don't quit when window is closed - app stays in background
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        return false
+    }
+    
+    // Re-show window when dock icon is clicked
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        return true
     }
     
     // Manually create the Menu Bar. 
