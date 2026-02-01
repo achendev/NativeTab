@@ -63,6 +63,17 @@ class ConnectionStore: ObservableObject {
         save()
     }
     
+    // --- Import / Export Helpers ---
+    func getSnapshot() -> StoreData {
+        return StoreData(groups: groups, connections: connections)
+    }
+    
+    func restore(from data: StoreData) {
+        self.groups = data.groups
+        self.connections = data.connections
+        save()
+    }
+    
     // --- Persistence ---
     func save() {
         let data = StoreData(groups: groups, connections: connections)

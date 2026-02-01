@@ -15,6 +15,11 @@ struct ConnectionListView: View {
     
     @State private var showSettings = false
     
+    // Import/Export State
+    @State private var isImporting = false
+    @State private var isExporting = false
+    @State private var documentToExport: ConnectionsDocument?
+    
     // Search & Focus
     @State private var searchText = ""
     @FocusState private var isSearchFocused: Bool
@@ -69,6 +74,39 @@ struct ConnectionListView: View {
                 secondaryButton: .cancel()
             )
         }
+        // Import Handler
+        .fileImporter(
+            isPresented: $isImporting,
+            allowedContentTypes: [.json],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                if let url = urls.first {
+                    // Start accessing security scoped resource
+                    guard url.startAccessingSecurityScopedResource() else { return }
+                    defer { url.stopAccessingSecurityScopedResource() }
+                    
+                    if let data = try? Data(contentsOf: url),
+                       let storeData = try? JSONDecoder().decode(StoreData.self, from: data) {
+                        store.restore(from: storeData)
+                    }
+                }
+            case .failure(let error):
+                print("Import failed: \(error.localizedDescription)")
+            }
+        }
+        // Export Handler
+        .fileExporter(
+            isPresented: $isExporting,
+            document: documentToExport,
+            contentType: .json,
+            defaultFilename: "mt_connections_backup"
+        ) { result in
+            if case .failure(let error) = result {
+                print("Export failed: \(error.localizedDescription)")
+            }
+        }
         .onAppear(perform: setupOnAppear)
     }
     
@@ -79,6 +117,30 @@ struct ConnectionListView: View {
             HStack {
                 Text("Connections").font(.headline)
                 Spacer()
+                
+                // Import/Export Menu
+                Menu {
+                    Button {
+                        isImporting = true
+                    } label: {
+                        Text("Import JSON...")
+                    }
+                    
+                    Button {
+                        documentToExport = ConnectionsDocument(storeData: store.getSnapshot())
+                        isExporting = true
+                    } label: {
+                        Text("Export JSON...")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 16))
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Import/Export")
+                .padding(.trailing, 8)
+
                 Button(action: { showSettings = true }) {
                     Image(systemName: "gear").font(.system(size: 16))
                 }
@@ -139,34 +201,11 @@ struct ConnectionListView: View {
             ScrollView {
                 VStack(spacing: 0) {
                     if !searchText.isEmpty {
-                        // Flat Search List
-                        ForEach(allFilteredConnections) { conn in
-                            renderRow(conn)
-                        }
-                        if allFilteredConnections.isEmpty {
-                            Text("No matching profiles").foregroundColor(.gray).padding()
-                        }
+                        searchResultList
                     } else {
-                        // Grouped List
-                        ForEach(store.groups) { group in
-                            GroupSectionView(
-                                group: group,
-                                connections: store.connections.filter { $0.groupID == group.id },
-                                highlightedID: highlightedConnectionID,
-                                selectedID: selectedConnectionID,
-                                hideCommand: hideCommandInList,
-                                searchText: searchText,
-                                onToggleExpand: { store.toggleGroupExpansion($0) },
-                                onDeleteGroup: { id in groupToDelete = GroupAlertItem(id: id) },
-                                onMoveConnection: { store.moveConnection($0, toGroup: $1) },
-                                onRowTap: handleRowTap,
-                                onRowConnect: launchConnection
-                            )
-                        }
-                        
-                        ungroupedSection
+                        groupedConnectionList
+                        ungroupDropArea
                     }
-                    Spacer(minLength: 50)
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -178,30 +217,61 @@ struct ConnectionListView: View {
         }
     }
     
+    var searchResultList: some View {
+        Group {
+            ForEach(allFilteredConnections) { conn in
+                renderRow(conn)
+            }
+            if allFilteredConnections.isEmpty {
+                Text("No matching profiles").foregroundColor(.gray).padding()
+            }
+        }
+    }
+    
+    var groupedConnectionList: some View {
+        Group {
+            ForEach(store.groups) { group in
+                GroupSectionView(
+                    group: group,
+                    connections: store.connections.filter { $0.groupID == group.id },
+                    highlightedID: highlightedConnectionID,
+                    selectedID: selectedConnectionID,
+                    hideCommand: hideCommandInList,
+                    searchText: searchText,
+                    onToggleExpand: { store.toggleGroupExpansion($0) },
+                    onDeleteGroup: { id in groupToDelete = GroupAlertItem(id: id) },
+                    onMoveConnection: { store.moveConnection($0, toGroup: $1) },
+                    onRowTap: handleRowTap,
+                    onRowConnect: launchConnection
+                )
+            }
+            ungroupedSection
+        }
+    }
+    
+    var ungroupDropArea: some View {
+        // DROP TARGET: Ungroup (Move to Root)
+        Spacer(minLength: 50)
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+            .onDrop(of: [UTType.text, UTType.plainText], isTargeted: nil) { providers in
+                if UserDefaults.standard.bool(forKey: "debugMode") {
+                    print("DEBUG: DROP EVENT - Ungroup Area")
+                }
+                guard let item = providers.first else { return false }
+                item.loadObject(ofClass: NSString.self) { (object, error) in
+                    if let idStr = object as? String, let uuid = UUID(uuidString: idStr) {
+                        DispatchQueue.main.async { store.moveConnection(uuid, toGroup: nil) }
+                    }
+                }
+                return true
+            }
+    }
+    
     var ungroupedSection: some View {
         let ungrouped = store.connections.filter { $0.groupID == nil }
         
         return Group {
-            if !ungrouped.isEmpty || !store.groups.isEmpty {
-                HStack {
-                    Text("Ungrouped")
-                        .font(.caption).fontWeight(.bold).foregroundColor(.secondary)
-                    Spacer()
-                }
-                .padding(.horizontal).padding(.top, 10).padding(.bottom, 4)
-                .contentShape(Rectangle())
-                // DROP TARGET: Move to Ungrouped
-                .onDrop(of: [.plainText], isTargeted: nil) { providers in
-                    guard let item = providers.first else { return false }
-                    item.loadObject(ofClass: NSString.self) { (object, error) in
-                        if let idStr = object as? String, let uuid = UUID(uuidString: idStr) {
-                            DispatchQueue.main.async { store.moveConnection(uuid, toGroup: nil) }
-                        }
-                    }
-                    return true
-                }
-            }
-            
             ForEach(ungrouped) { conn in
                 renderRow(conn)
             }

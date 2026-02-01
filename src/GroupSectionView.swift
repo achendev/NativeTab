@@ -47,14 +47,29 @@ struct GroupSectionView: View {
                 onToggleExpand(group.id)
             }
             // DROP TARGET: Add Connection to Group
-            .onDrop(of: [.plainText], isTargeted: nil) { providers in
+            // Fixed: passed nil to isTargeted to resolve compiler error
+            .onDrop(of: [UTType.text, UTType.plainText], isTargeted: nil) { providers in
+                if UserDefaults.standard.bool(forKey: "debugMode") {
+                    print("DEBUG: DROP EVENT - Group '\(group.name)' received items")
+                }
+                
                 guard let item = providers.first else { return false }
                 
                 item.loadObject(ofClass: NSString.self) { (object, error) in
+                    if let error = error {
+                        print("DEBUG: Drop Load Error: \(error)")
+                        return
+                    }
+                    
                     if let idStr = object as? String, let uuid = UUID(uuidString: idStr) {
+                        if UserDefaults.standard.bool(forKey: "debugMode") {
+                            print("DEBUG: Moving connection \(uuid) to group \(group.name)")
+                        }
                         DispatchQueue.main.async {
                             onMoveConnection(uuid, group.id)
                         }
+                    } else {
+                        print("DEBUG: Could not parse dropped object as UUID string")
                     }
                 }
                 return true
@@ -72,6 +87,7 @@ struct GroupSectionView: View {
                         onTap: { onRowTap(conn) },
                         onConnect: { onRowConnect(conn) }
                     )
+                    .padding(.leading, 16) // Indentation for tree view effect
                 }
             }
         }

@@ -16,24 +16,25 @@ struct ConnectionRowView: View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 // Interactive Row Area
-                Button(action: onTap) {
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(connection.name)
-                                .font(.headline)
-                                .foregroundColor(isHighlighted ? .white : (isEditing ? .accentColor : .primary))
-                            
-                            if !hideCommand || !searchText.isEmpty {
-                                Text(connection.command)
-                                    .font(.caption)
-                                    .foregroundColor(isHighlighted ? .white.opacity(0.8) : .gray)
-                            }
+                // REPLACEMENT: Using HStack + TapGesture instead of Button to allow Drag gestures to pass through
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text(connection.name)
+                            .font(.headline)
+                            .foregroundColor(isHighlighted ? .white : (isEditing ? .accentColor : .primary))
+                        
+                        if !hideCommand || !searchText.isEmpty {
+                            Text(connection.command)
+                                .font(.caption)
+                                .foregroundColor(isHighlighted ? .white.opacity(0.8) : .gray)
                         }
-                        Spacer()
                     }
-                    .contentShape(Rectangle())
+                    Spacer()
                 }
-                .buttonStyle(.plain)
+                .contentShape(Rectangle()) // Ensures the empty space is clickable/draggable
+                .onTapGesture {
+                    onTap()
+                }
                 .onHover { hovering in
                     if hovering { NSCursor.pointingHand.push() }
                     else { NSCursor.pop() }
@@ -52,9 +53,12 @@ struct ConnectionRowView: View {
                     .fill(isHighlighted ? AppColors.activeHighlight : Color.clear)
                     .padding(.horizontal, 4)
             )
-            // DRAG SOURCE
+            // DRAG SOURCE: Attached to the entire container
             .onDrag {
-                NSItemProvider(object: connection.id.uuidString as NSString)
+                if UserDefaults.standard.bool(forKey: "debugMode") {
+                    print("DEBUG: DRAG START - dragging '\(connection.name)' (ID: \(connection.id))")
+                }
+                return NSItemProvider(object: connection.id.uuidString as NSString)
             }
             
             Divider()

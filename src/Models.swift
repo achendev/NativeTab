@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - Constants
 struct AppColors {
@@ -27,7 +28,32 @@ struct StoreData: Codable {
     var connections: [Connection]
 }
 
-// Wrapper for Alert Identifiable state to avoid UUID extension warnings
+// Wrapper for Alert Identifiable state
 struct GroupAlertItem: Identifiable {
     let id: UUID
+}
+
+// MARK: - File Export/Import Document
+struct ConnectionsDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.json] }
+
+    var storeData: StoreData
+
+    init(storeData: StoreData) {
+        self.storeData = storeData
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        guard let data = configuration.file.regularFileContents else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        self.storeData = try JSONDecoder().decode(StoreData.self, from: data)
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .prettyPrinted
+        let data = try encoder.encode(storeData)
+        return FileWrapper(regularFileWithContents: data)
+    }
 }
