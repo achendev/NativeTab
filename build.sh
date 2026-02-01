@@ -12,51 +12,12 @@ mkdir -p /tmp/nativetab_trash
 [ -d "$APP_BUNDLE" ] && mv "$APP_BUNDLE" "/tmp/nativetab_trash/${APP_NAME}_$(date +%s).app"
 [ -d "$APP_NAME.iconset" ] && mv "$APP_NAME.iconset" "/tmp/nativetab_trash/iconset_$(date +%s)"
 [ -d "bin" ] && mv "bin" "/tmp/nativetab_trash/bin_$(date +%s)"
-rm -f "$ICON_PNG_MASTER" "$APP_NAME.icns" "icon_gen.swift"
+rm -f "$ICON_PNG_MASTER" "$APP_NAME.icns"
 
 # --- 2. Generate Professional Icon ---
 echo "▶ Generating Pro Icon from NativeTab.png..."
 
-# We use a Swift script to process NativeTab.png into a proper macOS-style icon.
-cat > icon_gen.swift << 'EOSWIFT'
-import Cocoa
-
-let size: CGFloat = 1024
-let padding: CGFloat = 120 // Proper padding for macOS dock icons
-let cornerRadius: CGFloat = 225 // Standard macOS squircle radius for 1024x1024
-let canvasRect = NSRect(x: 0, y: 0, width: size, height: size)
-let iconRect = canvasRect.insetBy(dx: padding, dy: padding)
-
-// 1. Create Image Context
-let img = NSImage(size: NSSize(width: size, height: size))
-img.lockFocus()
-
-// 2. Clear Background (Transparency)
-NSColor.clear.set()
-NSBezierPath(rect: canvasRect).fill()
-
-// 3. Load and Draw the Source Image with a Mask
-let sourcePath = "NativeTab.png"
-if let sourceImage = NSImage(contentsOfFile: sourcePath) {
-    let path = NSBezierPath(roundedRect: iconRect, xRadius: cornerRadius, yRadius: cornerRadius)
-    path.addClip()
-    
-    sourceImage.draw(in: iconRect, from: NSRect(origin: .zero, size: sourceImage.size), operation: .sourceOver, fraction: 1.0)
-} else {
-    print("Error: Could not load \(sourcePath)")
-}
-
-img.unlockFocus()
-
-// 4. Save as PNG
-if let tiff = img.tiffRepresentation,
-   let bitmap = NSBitmapImageRep(data: tiff),
-   let pngData = bitmap.representation(using: .png, properties: [:]) {
-    try? pngData.write(to: URL(fileURLWithPath: "icon_1024.png"))
-}
-EOSWIFT
-
-# Run the Swift generator
+# Run the Swift icon generator (uses icon_gen.swift in project root)
 swift icon_gen.swift
 
 if [ ! -f "$ICON_PNG_MASTER" ]; then
@@ -77,9 +38,9 @@ else
     
     iconutil -c icns "$APP_NAME.iconset" -o "$APP_NAME.icns"
     
-    # Cleanup artifacts
+    # Cleanup generated artifacts (keep icon_gen.swift as it's a project file)
     mv "$APP_NAME.iconset" "/tmp/nativetab_trash/iconset_done_$(date +%s)"
-    rm "$ICON_PNG_MASTER" "icon_gen.swift"
+    rm "$ICON_PNG_MASTER"
 fi
 
 # --- 3. Create Bundle Structure ---

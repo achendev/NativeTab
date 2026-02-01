@@ -106,6 +106,11 @@ func eventTapCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent,
         if !isClickInTerminalWindow(event.location) {
             return Unmanaged.passUnretained(event)
         }
+        
+        // Skip if mouse down was outside Terminal (lastMouseDownPoint was reset)
+        if lastMouseDownPoint == .zero {
+            return Unmanaged.passUnretained(event)
+        }
 
         let currentPoint = event.location
         // Calculate drag distance
