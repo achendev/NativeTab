@@ -1,5 +1,14 @@
 # NativeTab
 
+<p align="center">
+  <a href="https://github.com/achendev/NativeTab/releases">
+    <img src="https://img.shields.io/github/downloads/achendev/NativeTab/total.svg" alt="Total Downloads">
+  </a>
+  <a href="https://github.com/achendev/NativeTab">
+    <img src="https://img.shields.io/github/stars/achendev/NativeTab?style=social" alt="Star on GitHub">
+  </a>
+</p>
+
 **The missing Connection Manager and Input Enhancer for macOS Terminal.**
 
 NativeTab is a lightweight, native Swift application designed to supercharge the stock macOS Terminal.app. It bridges the gap between the native terminal experience and the advanced session management features found in heavy third-party emulators like iTerm2 or SecureCRT.
