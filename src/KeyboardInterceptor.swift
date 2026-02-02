@@ -174,8 +174,17 @@ func keyboardEventCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGE
             return Unmanaged.passUnretained(event)
         }
         
-        // Otherwise, activate NativeTab and swallow the event
+        // Otherwise, activate NativeTab and show window
         DispatchQueue.main.async {
+            // Get the app delegate to access the window
+            if let appDelegate = NSApp.delegate as? AppDelegate,
+               let window = appDelegate.window {
+                // Show the window if it's not visible or is minimized
+                if window.isMiniaturized {
+                    window.deminiaturize(nil)
+                }
+                window.makeKeyAndOrderFront(nil)
+            }
             NSApp.activate(ignoringOtherApps: true)
         }
         return nil // Swallow the event

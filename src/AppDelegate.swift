@@ -38,6 +38,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 500),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false  // Keep window alive when closed
         window.center()
         window.setFrameAutosaveName("Main Window")
         window.title = "NativeTab"
@@ -97,10 +98,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     // Re-show window when dock icon is clicked
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+        if window.isMiniaturized {
+            window.deminiaturize(nil)
         }
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
         return true
     }
     
