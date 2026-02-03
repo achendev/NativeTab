@@ -130,7 +130,10 @@ struct ConnectionListView: View {
     var mainScrollableList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(spacing: 0) {
+                // OPTIMIZATION: Use LazyVStack instead of VStack.
+                // This ensures that when searching through hundreds of items, 
+                // only the visible rows are rendered, drastically reducing lag during typing.
+                LazyVStack(spacing: 0, pinnedViews: []) { 
                     if !searchText.isEmpty {
                         searchResultList
                     } else {
