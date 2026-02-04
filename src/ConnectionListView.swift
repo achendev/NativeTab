@@ -98,6 +98,9 @@ struct ConnectionListView: View {
         }
         .fileExporter(isPresented: $isExporting, document: documentToExport, contentType: .json, defaultFilename: "mt_connections_backup") { _ in }
         .onAppear(perform: setupOnAppear)
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("FineTermOpenSettings"))) { _ in
+            showSettings = true
+        }
     }
     
     // MARK: - List Rendering

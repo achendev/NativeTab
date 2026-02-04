@@ -118,6 +118,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         appMenuItem.submenu = appMenu
         
         appMenu.addItem(withTitle: "About FineTerm", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(withTitle: "Settings...", action: #selector(openSettings), keyEquivalent: ",")
         appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(withTitle: "Quit FineTerm", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 
@@ -136,5 +137,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
 
         NSApp.mainMenu = mainMenu
+    }
+
+    @objc func openSettings() {
+        NotificationCenter.default.post(name: Notification.Name("FineTermOpenSettings"), object: nil)
     }
 }
