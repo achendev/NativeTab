@@ -12,6 +12,10 @@ struct ConnectionListHeader: View {
     @Binding var isExporting: Bool
     @Binding var documentToExport: ConnectionsDocument?
     
+    // Action Callbacks
+    var onImportFromClipboard: () -> Void
+    var onExportToClipboard: () -> Void
+    
     // Group Creation State
     @State private var isCreatingGroup = false
     @State private var newGroupName = ""
@@ -27,12 +31,19 @@ struct ConnectionListHeader: View {
                 
                 // Import/Export Menu
                 Menu {
-                    Button("Import Profiles") {
-                        isImporting = true
-                    }
-                    Button("Export Profiles") {
+                    Button("Export to File") {
                         documentToExport = ConnectionsDocument(exportData: store.getSnapshot())
                         isExporting = true
+                    }
+                    Button("Export to Clipboard") {
+                        onExportToClipboard()
+                    }
+                    Divider()
+                    Button("Import from File") {
+                        isImporting = true
+                    }
+                    Button("Import from Clipboard") {
+                        onImportFromClipboard()
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")

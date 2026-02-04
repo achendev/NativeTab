@@ -74,6 +74,8 @@ struct ConnectionListView: View {
                 isImporting: $isImporting,
                 isExporting: $isExporting,
                 documentToExport: $documentToExport,
+                onImportFromClipboard: importFromClipboard,
+                onExportToClipboard: exportToClipboard,
                 isSearchFocused: $isSearchFocused
             )
             .onTapGesture { if selectedConnectionID != nil { resetForm() } }
@@ -330,6 +332,40 @@ struct ConnectionListView: View {
         }
     }
     
+    func importFromClipboard() {
+        guard let string = NSPasteboard.general.string(forType: .string),
+              let data = string.data(using: .utf8) else {
+            NSSound.beep()
+            return
+        }
+        
+        do {
+            let exportData = try JSONDecoder().decode(ExportData.self, from: data)
+            store.restore(from: exportData)
+        } catch {
+            print("Import Error: \(error)")
+            NSSound.beep()
+        }
+    }
+    
+    func exportToClipboard() {
+        let exportData = store.getSnapshot()
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .prettyPrinted
+        
+        do {
+            let data = try encoder.encode(exportData)
+            if let string = String(data: data, encoding: .utf8) {
+                let pb = NSPasteboard.general
+                pb.clearContents()
+                pb.setString(string, forType: .string)
+            }
+        } catch {
+            print("Export Error: \(error)")
+            NSSound.beep()
+        }
+    }
+
     func setupOnAppear() {
         highlightedConnectionID = nil
         
