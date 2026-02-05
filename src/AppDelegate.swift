@@ -1,6 +1,7 @@
 import Cocoa
 import SwiftUI
 import Darwin
+import CoreGraphics
 
 @objc
 class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
@@ -38,6 +39,62 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         setupLocalShortcutMonitor()
     }
     
+    func applicationDidBecomeActive(_ notification: Notification) {
+        snapToTerminal()
+    }
+    
+    func snapToTerminal() {
+        if !UserDefaults.standard.bool(forKey: AppConfig.Keys.glueToTerminal) { return }
+        
+        // 1. Find the Terminal App Process
+        guard let termApp = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == "com.apple.Terminal" }) else { return }
+        let pid = termApp.processIdentifier
+        
+        // 2. Get Window List to find Terminal's window bounds
+        let options = CGWindowListOption(arrayLiteral: .optionOnScreenOnly, .excludeDesktopElements)
+        guard let windowList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else { return }
+        
+        // 3. Find the main Terminal window (Frontmost, reasonable size)
+        for info in windowList {
+            guard let ownerPID = info[kCGWindowOwnerPID as String] as? Int,
+                  ownerPID == pid,
+                  let boundsDict = info[kCGWindowBounds as String] as? [String: CGFloat],
+                  let width = boundsDict["Width"],
+                  let height = boundsDict["Height"],
+                  width > 100, height > 100 else { continue }
+            
+            // Assuming the first match is the main/front one (CGWindowList is ordered)
+            let x = boundsDict["X"] ?? 0
+            let y = boundsDict["Y"] ?? 0
+            
+            // 4. Calculate new frame for FineTerm
+            // Note: Cocoa coords (0,0) is Bottom-Left. CG coords (0,0) is Top-Left.
+            guard let primaryScreen = NSScreen.screens.first else { return }
+            let screenHeight = primaryScreen.frame.height
+            
+            // In Cocoa, Y is distance from bottom.
+            // cgY + cgHeight is the bottom edge in CG coords.
+            // screenHeight - (bottom edge) = Cocoa Y
+            let cocoaY = screenHeight - (y + height)
+            
+            // Force minimal width when glued
+            let fixedWidth: CGFloat = 250
+            let cocoaX = x - fixedWidth
+            
+            // Create new rect
+            let newFrame = NSRect(x: cocoaX, y: cocoaY, width: fixedWidth, height: height)
+            
+            // 5. Apply Position
+            window.setFrame(newFrame, display: true)
+            
+            // Debug Log
+            if UserDefaults.standard.bool(forKey: AppConfig.Keys.debugMode) {
+                print("DEBUG: Snapped to Terminal at X:\(cocoaX), Y:\(cocoaY), H:\(height), W:\(fixedWidth)")
+            }
+            return
+        }
+    }
+    
     func setupLogging() {
         let fileManager = FileManager.default
         let home = fileManager.homeDirectoryForCurrentUser
@@ -51,11 +108,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let path = logFile.path
             
             // Redirect stdout and stderr to the log file
-            // "a+" opens for reading and appending (creates if not exists)
             freopen(path, "a+", stdout)
             freopen(path, "a+", stderr)
             
-            // Disable buffering so logs appear immediately in the file
             setbuf(stdout, nil)
             setbuf(stderr, nil)
             
@@ -75,6 +130,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        window.minSize = NSSize(width: 320, height: 200) // Ensure resize limits
         window.center()
         window.setFrameAutosaveName("Main Window")
         window.title = "FineTerm"
@@ -220,3 +276,4 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return true
     }
 }
+

@@ -140,6 +140,10 @@ func activateFineTerm() {
            let window = appDelegate.window {
             NSApp.unhide(nil)
             if window.isMiniaturized { window.deminiaturize(nil) }
+            
+            // Force snap to Terminal immediately on activation shortcut
+            appDelegate.snapToTerminal()
+            
             window.makeKeyAndOrderFront(nil)
             window.orderFrontRegardless()
         }
@@ -258,3 +262,4 @@ func keyboardEventCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGE
     
     return Unmanaged.passUnretained(event)
 }
+
