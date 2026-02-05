@@ -2,7 +2,7 @@ import Cocoa
 import SwiftUI
 
 @objc
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var window: NSWindow!
     var mouseInterceptor: MouseInterceptor?
     var keyboardInterceptor: KeyboardInterceptor?
@@ -43,6 +43,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.center()
         window.setFrameAutosaveName("Main Window")
         window.title = "FineTerm"
+        
+        // Register delegate to handle closing logic
+        window.delegate = self
     }
 
     func checkPermissionsAndStart() {
@@ -145,6 +148,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // Called via Menu Item selector or UI Button
     @objc func openSettings() {
         settingsManager.open() // Open standalone window
+    }
+
+    // MARK: - NSWindowDelegate
+    
+    // This logic ensures that when the user closes the main window, 
+    // the app relinquishes focus to the previous app (e.g., Terminal).
+    // This allows the Global Activation Shortcut to work correctly immediately after.
+    func windowWillClose(_ notification: Notification) {
+        if let closedWindow = notification.object as? NSWindow, closedWindow === window {
+            NSApp.hide(nil)
+        }
     }
 
     func applicationWillTerminate(_ aNotification: Notification) {
