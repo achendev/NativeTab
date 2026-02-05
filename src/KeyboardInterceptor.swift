@@ -137,14 +137,25 @@ func keyboardEventCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGE
         
         if NSApp.isActive { return Unmanaged.passUnretained(event) }
         
-        DispatchQueue.main.async {
-            if let appDelegate = NSApp.delegate as? AppDelegate,
-               let window = appDelegate.window {
-                if window.isMiniaturized { window.deminiaturize(nil) }
-                window.makeKeyAndOrderFront(nil)
-            }
-            NSApp.activate(ignoringOtherApps: true)
+        // IMMEDIATE EXECUTION (No DispatchQueue.async)
+        // This removes the 1-frame/runloop delay that caused the workspace switch lag.
+        
+        if let appDelegate = NSApp.delegate as? AppDelegate,
+           let window = appDelegate.window {
+            
+            // 1. Explicitly unhide to prepare WindowServer
+            NSApp.unhide(nil)
+            
+            if window.isMiniaturized { window.deminiaturize(nil) }
+            
+            // 2. Force Window Order
+            window.makeKeyAndOrderFront(nil)
+            window.orderFrontRegardless()
         }
+        
+        // 3. Activate Application
+        NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps])
+        
         return nil
     }
     

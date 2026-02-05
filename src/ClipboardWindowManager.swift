@@ -22,8 +22,11 @@ class ClipboardWindowManager: NSObject, NSWindowDelegate {
         
         window.title = "Clipboard History"
         window.level = .floating
-        // REMOVED: window.hidesOnDeactivate = true
-        // This caused the window to get stuck in a hidden state when the app was hidden manually.
+        
+        // CRITICAL: .canJoinAllSpaces allows the window to appear on the current desktop 
+        // without forcing a switch to the Main Window's desktop.
+        // .fullScreenAuxiliary allows it to appear over full screen apps.
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         
         window.isReleasedWhenClosed = false
         window.delegate = self
@@ -50,23 +53,26 @@ class ClipboardWindowManager: NSObject, NSWindowDelegate {
     func show() {
         // Capture previous app to restore focus later
         if let currentApp = NSWorkspace.shared.frontmostApplication {
-            // Don't capture self as previous app
             if currentApp.bundleIdentifier != Bundle.main.bundleIdentifier {
                 previousApp = currentApp
             }
         }
         
-        // 1. Ensure the application is technically visible (unhidden)
-        // This is crucial if close() previously called NSApp.hide() because the main window was closed.
-        NSApp.unhide(nil)
+        // 1. Prepare Window on Current Space
+        // We do NOT call NSApp.unhide(nil) here, as that forces the Main Window (on another space) 
+        // to become relevant to the Window Server, often triggering a space switch.
         
-        // 2. Activate the app
-        NSApp.activate(ignoringOtherApps: true)
-        
-        // 3. Show and focus the window
         window.center()
+        
+        // Ordering the window front behaves like a 'local' action on the current space
+        // because of .canJoinAllSpaces.
         window.makeKeyAndOrderFront(nil)
-        window.orderFrontRegardless() // Force to front
+        window.orderFrontRegardless()
+        
+        // 2. Activate App
+        // Now that we have a visible window on the CURRENT space, activating the app 
+        // should focus this window in place, rather than switching to the Main Window's space.
+        NSApp.activate(ignoringOtherApps: true)
     }
     
     func close() {
@@ -79,13 +85,10 @@ class ClipboardWindowManager: NSObject, NSWindowDelegate {
             prev.activate(options: [])
             previousApp = nil
         } else {
-            // Fallback: If no specific previous app, ensure we don't block workflow.
-            
             // Check if Main Window (Session Manager) is visible
             let hasVisibleMainWindow = NSApp.windows.contains { $0 !== window && $0.isVisible && !$0.isMiniaturized }
             
-            // If the Session Manager is closed, we should hide the app entirely
-            // so it behaves like a background utility when the clipboard closes.
+            // If the Session Manager is closed, hide the app to behave like a background utility.
             if !hasVisibleMainWindow {
                 NSApp.hide(nil)
             }
@@ -104,7 +107,6 @@ class ClipboardWindowManager: NSObject, NSWindowDelegate {
     
     func windowDidResignKey(_ notification: Notification) {
         if let win = notification.object as? NSWindow, win === window {
-            // Use a small delay to ensure we aren't just switching focus internally
             DispatchQueue.main.async {
                 if self.window.isVisible {
                     self.close()
