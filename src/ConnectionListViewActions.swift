@@ -35,35 +35,14 @@ extension ConnectionListView {
     // MARK: - Filter Logic
     func performFilter(_ text: String) -> [Connection] {
         if smartFilter {
-            let terms = text.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
-            if terms.isEmpty { return [] }
-            
-            // Separate inclusion and exclusion terms
-            // Terms starting with "-" (and having more characters) are exclusions.
-            let excludeTerms = terms.filter { $0.hasPrefix("-") && $0.count > 1 }.map { String($0.dropFirst()) }
-            // All other terms (including a standalone "-") are inclusions.
-            let includeTerms = terms.filter { !$0.hasPrefix("-") || $0.count == 1 }
-            
-            return store.connections.filter { conn in
-                // 1. Must match ALL inclusion terms
-                let matchesAllIncludes = includeTerms.allSatisfy { term in
-                    conn.name.localizedCaseInsensitiveContains(term) ||
-                    conn.command.localizedCaseInsensitiveContains(term)
-                }
-                
-                if !matchesAllIncludes { return false }
-                
-                // 2. Must NOT match ANY exclusion terms
-                let matchesAnyExclude = excludeTerms.contains { term in
-                    conn.name.localizedCaseInsensitiveContains(term) ||
-                    conn.command.localizedCaseInsensitiveContains(term)
-                }
-                
-                return !matchesAnyExclude
+            // DRY: Using Shared Search Service
+            // We combine name and command into a single searchable string
+            return SearchService.smartFilter(store.connections, query: text) { conn in
+                return "\(conn.name) \(conn.command)"
             }
             .sorted { ($0.lastUsed ?? Date.distantPast) > ($1.lastUsed ?? Date.distantPast) }
         } else {
-            // Standard simple search (legacy/exact match mode)
+            // Legacy/Simple match
             return store.connections.filter {
                 $0.name.localizedCaseInsensitiveContains(text) ||
                 $0.command.localizedCaseInsensitiveContains(text)

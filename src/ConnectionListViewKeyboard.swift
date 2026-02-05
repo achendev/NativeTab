@@ -7,25 +7,31 @@ extension ConnectionListView {
     func setupOnAppear() {
         highlightedConnectionID = nil
         
-        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+        // Ensure Focus is in Search Input immediately on open (Only if main window is relevant)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            if self.shouldGrabFocus() {
                 self.isSearchFocused = true
             }
         }
         
+        // Handle App Activation (CMD+Tab or Dock Click)
+        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                if self.shouldGrabFocus() {
+                    self.isSearchFocused = true
+                }
+            }
+        }
+        
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            
             // REQ: Ensure we only process these shortcuts if the MAIN window is the target.
-            // This prevents "Esc to Terminal" from firing when Clipboard Manager or Settings is focused.
-            // We check if the event's window is the NSApp.mainWindow (usually the active document/tool window)
-            // or explicitly check against the window containing this view.
             guard let eventWindow = event.window, 
                   let appDelegate = NSApp.delegate as? AppDelegate,
                   eventWindow === appDelegate.window else {
                 return event
             }
             
-            // 1. GLOBAL SHORTCUT HANDLING WITHIN APP (Priority High)
+            // 1. GLOBAL SHORTCUT HANDLING WITHIN APP
             let defaults = UserDefaults.standard
             let targetKeyChar = defaults.string(forKey: AppConfig.Keys.globalShortcutKey) ?? "n"
             let targetModifierStr = defaults.string(forKey: AppConfig.Keys.globalShortcutModifier) ?? "command"
@@ -66,7 +72,6 @@ extension ConnectionListView {
                     
                     // Reset and focus search
                     NSApp.keyWindow?.makeFirstResponder(nil)
-                    
                     DispatchQueue.main.async {
                         self.selectedConnectionID = nil
                         self.resetForm()
@@ -83,18 +88,12 @@ extension ConnectionListView {
             // Esc Handler
             if event.keyCode == 53 {
                 if UserDefaults.standard.bool(forKey: AppConfig.Keys.escToTerminal) {
-                    // Switch to Terminal
                     DispatchQueue.main.async {
                         if let terminalApp = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == "com.apple.Terminal" }) {
                             terminalApp.activate(options: [.activateIgnoringOtherApps])
-                        } else {
-                            if let terminalURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") {
-                                NSWorkspace.shared.openApplication(at: terminalURL, configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
-                            }
                         }
                     }
                 } else {
-                    // "Cancel All" and Focus Search
                     self.resetForm()
                     self.isCreatingGroup = false
                     self.newGroupName = ""
@@ -130,11 +129,7 @@ extension ConnectionListView {
             case 36: // Enter
                 if let current = highlightedConnectionID,
                    let conn = currentList.first(where: { $0.id == current }) {
-                    
-                    if self.selectedConnectionID != nil {
-                        self.saveSelected()
-                    }
-                    
+                    if self.selectedConnectionID != nil { self.saveSelected() }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         self.launchConnection(conn)
                     }
@@ -145,4 +140,20 @@ extension ConnectionListView {
             return event
         }
     }
+    
+    // Helper: Determine if we should grab focus
+    private func shouldGrabFocus() -> Bool {
+        // 1. If Clipboard Window is visible, DO NOT grab focus.
+        // We check if any visible window is of type ClipboardWindow
+        let clipboardWindowVisible = NSApp.windows.contains { $0 is ClipboardWindow && $0.isVisible }
+        if clipboardWindowVisible { return false }
+        
+        // 2. If Settings Window is key, DO NOT grab focus.
+        if let keyWin = NSApp.keyWindow, keyWin is SettingsWindow { return false }
+        
+        // 3. Only grab if the Main Window (where this view lives) is supposed to be active
+        // Simplest proxy: if we are here, we probably want focus UNLESS intercepted above.
+        return true
+    }
 }
+

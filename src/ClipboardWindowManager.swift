@@ -27,7 +27,6 @@ class ClipboardWindowManager: NSObject, NSWindowDelegate {
         // without forcing a switch to the Main Window's desktop.
         // .fullScreenAuxiliary allows it to appear over full screen apps.
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        
         window.isReleasedWhenClosed = false
         window.delegate = self
         
@@ -73,11 +72,16 @@ class ClipboardWindowManager: NSObject, NSWindowDelegate {
         // Now that we have a visible window on the CURRENT space, activating the app 
         // should focus this window in place, rather than switching to the Main Window's space.
         NSApp.activate(ignoringOtherApps: true)
+        
+        // Re-inject view to force focus state reset
+        let contentView = ClipboardHistoryView(store: store) { [weak self] in
+            self?.close()
+        }
+        window.contentView = NSHostingView(rootView: contentView)
     }
     
     func close() {
         guard window.isVisible else { return }
-        
         window.orderOut(nil)
         
         // Logic to return focus
@@ -94,8 +98,6 @@ class ClipboardWindowManager: NSObject, NSWindowDelegate {
             }
         }
     }
-    
-    // MARK: - NSWindowDelegate
     
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if sender === window {
