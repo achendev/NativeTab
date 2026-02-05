@@ -1,18 +1,6 @@
 import Cocoa
 import SwiftUI
 
-struct PermissionManager {
-    static func checkAccessibility() -> Bool {
-        let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: false]
-        return AXIsProcessTrustedWithOptions(options)
-    }
-    
-    static func requestAccessibility() {
-        let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
-        AXIsProcessTrustedWithOptions(options)
-    }
-}
-
 struct PermissionView: View {
     @State private var isAccessibilityGranted = PermissionManager.checkAccessibility()
     let onPermissionGranted: () -> Void
@@ -63,7 +51,6 @@ struct PermissionView: View {
             let granted = PermissionManager.checkAccessibility()
             if granted && !isAccessibilityGranted {
                 isAccessibilityGranted = true
-                // Add a small delay so the user sees the green checkmark
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     onPermissionGranted()
                 }
