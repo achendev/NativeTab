@@ -14,12 +14,17 @@ struct SettingsView: View {
     @AppStorage("hideCommandInList") private var hideCommandInList = true
     @AppStorage("smartFilter") private var smartFilter = true
     
-    // Shortcut Settings
+    // Main Shortcut Settings
     @AppStorage("globalShortcutKey") private var globalShortcutKey = "n"
     @AppStorage("globalShortcutModifier") private var globalShortcutModifier = "command"
     @AppStorage("globalShortcutAnywhere") private var globalShortcutAnywhere = false
     @AppStorage("secondActivationToTerminal") private var secondActivationToTerminal = true
     @AppStorage("escToTerminal") private var escToTerminal = false
+    
+    // Clipboard Shortcut Settings
+    @AppStorage("enableClipboardManager") private var enableClipboardManager = false
+    @AppStorage("clipboardShortcutKey") private var clipboardShortcutKey = "u"
+    @AppStorage("clipboardShortcutModifier") private var clipboardShortcutModifier = "command"
     
     // Local State for Run on Startup (File-based, not UserDefaults)
     @State private var runOnStartup: Bool = LaunchAtLoginManager.isEnabled()
@@ -42,9 +47,9 @@ struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     
-                    // Group 1: Shortcut
+                    // Group 1: Main Shortcut
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Global Activation Shortcut")
+                        Text("Connection Manager Shortcut")
                             .font(.subheadline)
                             .fontWeight(.semibold)
                         
@@ -70,20 +75,61 @@ struct SettingsView: View {
                         
                         Toggle("System-wide (Global)", isOn: $globalShortcutAnywhere)
                             .toggleStyle(.switch)
-                            .help("If enabled, the shortcut works from any app, not just Terminal.")
+                            .help("If enabled, the shortcut works from any app.")
                         
                         Toggle("Second Activation to Terminal", isOn: $secondActivationToTerminal)
                             .toggleStyle(.switch)
-                            .help("If enabled, pressing the shortcut again when search is focused will switch to Terminal.")
                             
                         Toggle("Esc to Terminal", isOn: $escToTerminal)
                             .toggleStyle(.switch)
-                            .help("If enabled, pressing Esc will switch focus back to Terminal.")
                     }
                     
                     Divider()
                     
-                    // Group 2: Command Injection Settings
+                    // Group 2: Clipboard Shortcut
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Clipboard Manager")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                        
+                        Toggle("Enable Clipboard Manager", isOn: $enableClipboardManager)
+                            .toggleStyle(.switch)
+                            .help("Enables the clipboard history overlay (Global).")
+                        
+                        if enableClipboardManager {
+                            HStack {
+                                Text("Shortcut:")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                
+                                Picker("", selection: $clipboardShortcutModifier) {
+                                    Text("Command").tag("command")
+                                    Text("Control").tag("control")
+                                    Text("Option").tag("option")
+                                }
+                                .frame(width: 90)
+                                .controlSize(.small)
+                                
+                                Text("+")
+                                    .font(.caption)
+                                
+                                TextField("Key", text: $clipboardShortcutKey)
+                                    .frame(width: 30)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                    .controlSize(.small)
+                                    .onChange(of: clipboardShortcutKey) { newValue in
+                                        if newValue.count > 1 {
+                                            clipboardShortcutKey = String(newValue.prefix(1))
+                                        }
+                                    }
+                            }
+                            .padding(.leading, 10)
+                        }
+                    }
+                    
+                    Divider()
+                    
+                    // Group 3: Command Injection Settings
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Command Execution Wrappers")
                             .font(.subheadline)
@@ -105,22 +151,20 @@ struct SettingsView: View {
                         
                         Toggle("Set Terminal Tab Name", isOn: $changeTerminalName)
                             .toggleStyle(.switch)
-                            .help("Sets the Terminal tab title to the connection name before running the command.")
                     }
                     
                     Divider()
                     
-                    // Group 3: UI Preferences
+                    // Group 4: UI Preferences
                     VStack(alignment: .leading, spacing: 10) {
                         Toggle("Hide Command in List", isOn: $hideCommandInList)
                             .toggleStyle(.switch)
                         
                         Toggle("Smart Search (Multi-word)", isOn: $smartFilter)
                             .toggleStyle(.switch)
-                            .help("If enabled, 'db prod' matches 'prod db' (AND logic per word).")
                     }
                     
-                    // Group 4: Mouse Behavior
+                    // Group 5: Mouse Behavior
                     VStack(alignment: .leading, spacing: 10) {
                         Toggle("Copy on Select", isOn: $copyOnSelect)
                             .toggleStyle(.switch)
@@ -131,7 +175,7 @@ struct SettingsView: View {
 
                     Divider()
 
-                    // Group 5: System
+                    // Group 6: System
                     VStack(alignment: .leading, spacing: 10) {
                         Toggle("Run on Startup", isOn: $runOnStartup)
                             .toggleStyle(.switch)
@@ -161,4 +205,3 @@ struct SettingsView: View {
         .frame(width: 400, height: 650)
     }
 }
-

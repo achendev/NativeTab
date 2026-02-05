@@ -65,6 +65,13 @@ struct Connection: Identifiable, Codable {
     }
 }
 
+// Clipboard Model
+struct ClipboardItem: Identifiable, Codable {
+    var id = UUID()
+    var content: String
+    var timestamp: Date
+}
+
 // Data Wrapper for Internal Persistence
 struct StoreData: Codable {
     var groups: [ConnectionGroup]

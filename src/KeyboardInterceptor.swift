@@ -103,12 +103,25 @@ class KeyboardInterceptor {
     }
 }
 
+// Helper to check modifier string vs flags
+func isModifierMatch(flags: CGEventFlags, targetStr: String) -> Bool {
+    switch targetStr {
+        case "command": 
+            return flags.contains(.maskCommand) && !flags.contains(.maskControl) && !flags.contains(.maskAlternate)
+        case "control": 
+            return flags.contains(.maskControl) && !flags.contains(.maskCommand) && !flags.contains(.maskAlternate)
+        case "option":  
+            return flags.contains(.maskAlternate) && !flags.contains(.maskCommand) && !flags.contains(.maskControl)
+        default: 
+            return false
+    }
+}
+
 // Global C-function callback
 func keyboardEventCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, refcon: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
     
     // Handle special event types - tap may be disabled by system
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-        // Re-enable the tap using the global reference
         if let tap = globalKeyboardEventTap {
             CGEvent.tapEnable(tap: tap, enable: true)
         }
@@ -120,74 +133,68 @@ func keyboardEventCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGE
         return Unmanaged.passUnretained(event)
     }
     
-    // OPTIMIZATION: Check modifier keys FIRST
-    // All global shortcuts require a modifier (Command, Control, or Option)
-    // If no modifier is pressed, immediately pass through without any processing
     let flags = event.flags
     let hasModifier = flags.contains(.maskCommand) || flags.contains(.maskControl) || flags.contains(.maskAlternate)
     
     if !hasModifier {
-        // No modifier key pressed - pass through immediately
-        // This ensures Enter, regular typing, etc. go through with zero interference
         return Unmanaged.passUnretained(event)
     }
     
-    // From here, we know a modifier key IS pressed
     let defaults = UserDefaults.standard
-    let globalAnywhere = defaults.bool(forKey: "globalShortcutAnywhere")
-
-    // Check Scope: If NOT global anywhere, require Terminal focus
-    if !globalAnywhere {
-        guard let frontApp = NSWorkspace.shared.frontmostApplication,
-              frontApp.bundleIdentifier == "com.apple.Terminal" else {
-            // Not in Terminal, pass through for our app to handle
-            return Unmanaged.passUnretained(event)
-        }
-    }
-
-    let targetKeyChar = defaults.string(forKey: "globalShortcutKey") ?? "n"
-    let targetModifierStr = defaults.string(forKey: "globalShortcutModifier") ?? "command"
+    let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+    let frontApp = NSWorkspace.shared.frontmostApplication
+    let isTerminalFront = frontApp?.bundleIdentifier == "com.apple.Terminal"
     
-    // Get target KeyCode
-    guard let targetKeyCode = KeyboardInterceptor.getKeyCode(for: targetKeyChar) else {
-        return Unmanaged.passUnretained(event)
-    }
+    // ----------------------------------------------------
+    // CHECK 1: Connection Manager (Main) Shortcut
+    // ----------------------------------------------------
+    let mainKey = defaults.string(forKey: "globalShortcutKey") ?? "n"
+    let mainMod = defaults.string(forKey: "globalShortcutModifier") ?? "command"
+    let mainAnywhere = defaults.bool(forKey: "globalShortcutAnywhere")
     
-    // Check if the specific modifier matches (exclusive - only that modifier, not others)
-    var modifierMatch = false
-    switch targetModifierStr {
-        case "command": 
-            modifierMatch = flags.contains(.maskCommand) && !flags.contains(.maskControl) && !flags.contains(.maskAlternate)
-        case "control": 
-            modifierMatch = flags.contains(.maskControl) && !flags.contains(.maskCommand) && !flags.contains(.maskAlternate)
-        case "option":  
-            modifierMatch = flags.contains(.maskAlternate) && !flags.contains(.maskCommand) && !flags.contains(.maskControl)
-        default: 
-            modifierMatch = false
-    }
-    
-    if modifierMatch && event.getIntegerValueField(.keyboardEventKeycode) == Int64(targetKeyCode) {
-        // MATCH DETECTED! This is the global shortcut.
+    if (mainAnywhere || isTerminalFront),
+       let mainCode = KeyboardInterceptor.getKeyCode(for: mainKey),
+       keyCode == Int64(mainCode),
+       isModifierMatch(flags: flags, targetStr: mainMod) {
         
-        // If FineTerm is already active, pass through to let local monitor handle it
+        // Pass through if active to let local responder handle focus logic
         if NSApp.isActive {
             return Unmanaged.passUnretained(event)
         }
         
-        // Otherwise, activate FineTerm and show window
         DispatchQueue.main.async {
-            // Get the app delegate to access the window
             if let appDelegate = NSApp.delegate as? AppDelegate,
                let window = appDelegate.window {
-                // Show the window if it's not visible or is minimized
-                if window.isMiniaturized {
-                    window.deminiaturize(nil)
-                }
+                if window.isMiniaturized { window.deminiaturize(nil) }
                 window.makeKeyAndOrderFront(nil)
             }
             NSApp.activate(ignoringOtherApps: true)
         }
-        return nil // Swallow the event
+        return nil // Swallow event
+    }
+    
+    // ----------------------------------------------------
+    // CHECK 2: Clipboard Manager Shortcut
+    // ----------------------------------------------------
+    let clipboardEnabled = defaults.bool(forKey: "enableClipboardManager")
+    
+    // Only proceed if enabled
+    if clipboardEnabled {
+        let clipKey = defaults.string(forKey: "clipboardShortcutKey") ?? "u"
+        let clipMod = defaults.string(forKey: "clipboardShortcutModifier") ?? "command"
+        // Clipboard is now ALWAYS global if enabled (Requirement 1)
+        
+        if let clipCode = KeyboardInterceptor.getKeyCode(for: clipKey),
+           keyCode == Int64(clipCode),
+           isModifierMatch(flags: flags, targetStr: clipMod) {
+            
+            DispatchQueue.main.async {
+                if let appDelegate = NSApp.delegate as? AppDelegate {
+                    appDelegate.toggleClipboardWindow()
+                }
+            }
+            return nil // Swallow event
+        }
     }
     
     return Unmanaged.passUnretained(event)
