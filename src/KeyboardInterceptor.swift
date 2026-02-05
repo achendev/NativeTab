@@ -137,9 +137,6 @@ func keyboardEventCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGE
         
         if NSApp.isActive { return Unmanaged.passUnretained(event) }
         
-        // IMMEDIATE EXECUTION (No DispatchQueue.async)
-        // This removes the 1-frame/runloop delay that caused the workspace switch lag.
-        
         if let appDelegate = NSApp.delegate as? AppDelegate,
            let window = appDelegate.window {
             
@@ -153,8 +150,8 @@ func keyboardEventCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGE
             window.orderFrontRegardless()
         }
         
-        // 3. Activate Application
-        NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps])
+        // 3. Activate Application (Fixed: Use NSApp.activate for robust focus)
+        NSApp.activate(ignoringOtherApps: true)
         
         return nil
     }
