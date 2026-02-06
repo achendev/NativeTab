@@ -67,15 +67,13 @@ func eventTapCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent,
                 }
             }
         }
-        
         return false
     }
 
     // 1. Handle Right Click -> Paste (Cmd+V)
     if type == .rightMouseDown {
-        // Check Setting
         if UserDefaults.standard.bool(forKey: "pasteOnRightClick") {
-            // Only paste if click is strictly on a Terminal window (not obscured by Dock)
+            // Only paste if click is strictly on a Terminal window
             if !isClickInTerminalWindow(event.location) {
                 if isDebug { print("DEBUG: Right click outside/obscured, ignoring.") }
                 return Unmanaged.passUnretained(event)
@@ -102,52 +100,43 @@ func eventTapCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent,
     
     // 2. Track Mouse Down
     if type == .leftMouseDown {
-        // Only track if click is actually in Terminal window
         if isClickInTerminalWindow(event.location) {
             lastMouseDownPoint = event.location
         } else {
-            lastMouseDownPoint = .zero // Reset to prevent false triggers
+            lastMouseDownPoint = .zero
         }
         return Unmanaged.passUnretained(event)
     }
     
     // 3. Handle Left Mouse Up -> Copy (Cmd+C)
     if type == .leftMouseUp {
-        // Check Setting
         if !UserDefaults.standard.bool(forKey: "copyOnSelect") {
              return Unmanaged.passUnretained(event)
         }
         
-        // Only copy if release is in Terminal window
-        if !isClickInTerminalWindow(event.location) {
-            return Unmanaged.passUnretained(event)
-        }
+        // FIX: Removed the check !isClickInTerminalWindow(event.location)
+        // If the drag started inside the terminal (lastMouseDownPoint != .zero),
+        // we should respect the selection even if the mouse release happens outside.
         
-        // Skip if mouse down was outside Terminal (lastMouseDownPoint was reset)
         if lastMouseDownPoint == .zero {
             return Unmanaged.passUnretained(event)
         }
 
         let currentPoint = event.location
-        // Calculate drag distance
         let dist = hypot(currentPoint.x - lastMouseDownPoint.x, currentPoint.y - lastMouseDownPoint.y)
-        
-        // Get Click Count (1 = single, 2 = double, 3 = triple)
         let clickCount = event.getIntegerValueField(.mouseEventClickState)
         
-        // Trigger Copy if:
-        // A) User dragged more than 5 pixels (Manual selection)
-        // B) User Double-clicked (Word selection) or Triple-clicked (Line selection)
+        // Reset lastMouseDownPoint to avoid stale state
+        lastMouseDownPoint = .zero
+        
+        // Trigger Copy if dragged > 5px OR Double/Triple Click
         if dist > 5.0 || clickCount >= 2 {
             
             if isDebug {
                 print("DEBUG: Selection Detected (Drag: \(Int(dist))px, Clicks: \(clickCount)). Queuing Copy...")
             }
             
-            // Wait 0.01s (reduced from 0.25s) for Terminal to finalize the visual selection
-            // This ensures it feels "instant" (10ms) but is reliably processed after selection logic.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
-                // Ensure Terminal is still focused
                 if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.Terminal" {
                     
                     let source = CGEventSource(stateID: .hidSystemState)
