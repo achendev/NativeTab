@@ -25,9 +25,11 @@ extension ConnectionListView {
         
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             // REQ: Ensure we only process these shortcuts if the MAIN window is the target.
-            guard let eventWindow = event.window, 
-                  let appDelegate = NSApp.delegate as? AppDelegate,
-                  eventWindow === appDelegate.window else {
+            // Using a class-based check is more robust than comparing exact instances with AppDelegate
+            guard let eventWindow = event.window else { return event }
+            
+            // Ignore events from known auxiliary windows
+            if eventWindow is SettingsWindow || eventWindow is ClipboardWindow {
                 return event
             }
             
@@ -156,4 +158,3 @@ extension ConnectionListView {
         return true
     }
 }
-
