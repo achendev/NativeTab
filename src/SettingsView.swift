@@ -34,8 +34,9 @@ struct SettingsView: View {
     @AppStorage(AppConfig.Keys.clipboardAutoDeleteTempFile) private var clipboardAutoDeleteTempFile = true
     @AppStorage(AppConfig.Keys.clipboardAutoDeleteDelay) private var clipboardAutoDeleteDelay = 2.0
     
-    // Storage Limit
+    // Storage Limits
     @AppStorage(AppConfig.Keys.clipboardItemSizeLimitKB) private var clipboardItemSizeLimitKB = 10
+    @AppStorage(AppConfig.Keys.clipboardLargeItemSizeLimitMB) private var clipboardLargeItemSizeLimitMB = 5
     
     @State private var runOnStartup: Bool = LaunchAtLoginManager.isEnabled()
     
@@ -183,23 +184,33 @@ struct SettingsView: View {
                             
                             // Storage
                             VStack(alignment: .leading, spacing: 6) {
-                                Text("Storage:")
+                                Text("Storage & Limits:")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
+                                
                                 HStack {
                                     Text("Max Items:")
                                         .font(.caption)
-                                        .frame(width: 80, alignment: .leading)
+                                        .frame(width: 90, alignment: .leading)
                                     TextField("100", value: $clipboardHistorySize, formatter: NumberFormatter())
                                         .frame(width: 50)
                                         .textFieldStyle(RoundedBorderTextFieldStyle())
                                 }
                                 
                                 HStack {
-                                    Text("Item Limit (KB):")
+                                    Text("List Limit (KB):")
                                         .font(.caption)
-                                        .frame(width: 80, alignment: .leading)
+                                        .frame(width: 90, alignment: .leading)
                                     TextField("10", value: $clipboardItemSizeLimitKB, formatter: NumberFormatter())
+                                        .frame(width: 50)
+                                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                                }
+                                
+                                HStack {
+                                    Text("Full Limit (MB):")
+                                        .font(.caption)
+                                        .frame(width: 90, alignment: .leading)
+                                    TextField("5", value: $clipboardLargeItemSizeLimitMB, formatter: NumberFormatter())
                                         .frame(width: 50)
                                         .textFieldStyle(RoundedBorderTextFieldStyle())
                                 }
@@ -271,7 +282,7 @@ struct SettingsView: View {
                 .padding()
             }
         }
-        .frame(minWidth: 400, minHeight: 600)
+        .frame(minWidth: 400, minHeight: 650)
         .onAppear {
             editorBridge.refreshEditors()
         }

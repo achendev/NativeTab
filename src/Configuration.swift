@@ -34,8 +34,9 @@ struct AppConfig {
         static let clipboardAutoDeleteTempFile = "clipboardAutoDeleteTempFile"
         static let clipboardAutoDeleteDelay = "clipboardAutoDeleteDelay"
         
-        // Storage Limit
-        static let clipboardItemSizeLimitKB = "clipboardItemSizeLimitKB"
+        // Storage Limits
+        static let clipboardItemSizeLimitKB = "clipboardItemSizeLimitKB" // Fast Store Limit (Default 10KB)
+        static let clipboardLargeItemSizeLimitMB = "clipboardLargeItemSizeLimitMB" // Slow Store Limit (Default 5MB)
     }
     
     static let defaults: [String: Any] = [
@@ -71,8 +72,9 @@ struct AppConfig {
         Keys.clipboardAutoDeleteTempFile: true,
         Keys.clipboardAutoDeleteDelay: 2.0,
         
-        // Default 10KB
-        Keys.clipboardItemSizeLimitKB: 10
+        // Default 10KB for list, 5MB for blobs
+        Keys.clipboardItemSizeLimitKB: 10,
+        Keys.clipboardLargeItemSizeLimitMB: 5
     ]
     
     static func registerDefaults() {

@@ -4,8 +4,12 @@ import CryptoKit
 
 class ClipboardStore: ObservableObject {
     @Published var history: [ClipboardItem] = []
+    // Separate storage for large text blobs: [UUID: FullContent]
+    private var blobs: [UUID: String] = [:]
     
     private let fileURL: URL
+    private let blobsURL: URL
+    
     private var timer: Timer?
     private var lastChangeCount: Int
     
@@ -15,7 +19,7 @@ class ClipboardStore: ObservableObject {
     init() {
         let fileManager = FileManager.default
         
-        // Target: ~/Library/Application Support/<BundleID>/clipboard_history.enc
+        // Target: ~/Library/Application Support/<BundleID>/
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let bundleID = Bundle.main.bundleIdentifier ?? "com.local.FineTerm"
         let appDir = appSupport.appendingPathComponent(bundleID)
@@ -24,31 +28,11 @@ class ClipboardStore: ObservableObject {
         try? fileManager.createDirectory(at: appDir, withIntermediateDirectories: true, attributes: nil)
         
         fileURL = appDir.appendingPathComponent("clipboard_history.enc")
+        blobsURL = appDir.appendingPathComponent("clipboard_blobs.enc")
+        
         lastChangeCount = NSPasteboard.general.changeCount
         
-        // Migrate old plaintext data if exists
-        migrateLegacyData()
-        
         load()
-    }
-    
-    private func migrateLegacyData() {
-        let fileManager = FileManager.default
-        let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let oldURL = docs.appendingPathComponent("clipboard_history.json")
-        
-        // If old file exists and new file doesn't
-        if fileManager.fileExists(atPath: oldURL.path) && !fileManager.fileExists(atPath: fileURL.path) {
-            print("Migrating legacy clipboard history...")
-            if let data = try? Data(contentsOf: oldURL),
-               let loaded = try? JSONDecoder().decode([ClipboardItem].self, from: data) {
-                self.history = loaded
-                // Save immediately to new encrypted location
-                save()
-                // Remove old plaintext file
-                try? fileManager.removeItem(at: oldURL)
-            }
-        }
     }
     
     func startMonitoring() {
@@ -76,30 +60,64 @@ class ClipboardStore: ObservableObject {
     }
     
     func add(content: String) {
-        // Check duplication
-        if let first = history.first, first.content == content {
-            return
+        // 1. Check duplication (Compare against full content if possible, or truncate match)
+        // Optimization: Check latest item first
+        if let first = history.first {
+            // If the new content is massive, comparing strings might be slow, but essential for dedup.
+            // Check if first item has a blob
+            if let blobContent = blobs[first.id] {
+                if blobContent == content { return }
+            } else {
+                if first.content == content { return }
+            }
         }
         
-        var finalContent = content
+        // 2. Limits Configuration
+        let fastLimitKB = max(1, UserDefaults.standard.integer(forKey: AppConfig.Keys.clipboardItemSizeLimitKB))
+        let fastLimitBytes = fastLimitKB * 1024
         
-        // Truncate if larger than limit
-        let limitKB = UserDefaults.standard.integer(forKey: AppConfig.Keys.clipboardItemSizeLimitKB)
-        // Ensure limit is reasonable (min 1KB if set, usually defaults to 10)
-        let safeLimitKB = limitKB > 0 ? limitKB : 10
-        let limitBytes = safeLimitKB * 1024
+        let slowLimitMB = max(1, UserDefaults.standard.integer(forKey: AppConfig.Keys.clipboardLargeItemSizeLimitMB))
+        let slowLimitBytes = slowLimitMB * 1024 * 1024
         
-        if finalContent.utf8.count > limitBytes {
-            finalContent = truncate(string: finalContent, limitBytes: limitBytes)
+        var displayContent = content
+        var fullContent: String? = nil
+        
+        // 3. Size Logic
+        if content.utf8.count > fastLimitBytes {
+            // It exceeds fast limit.
+            // Create display version (Truncated)
+            displayContent = truncate(string: content, limitBytes: fastLimitBytes)
+            
+            // Check against Slow Limit
+            if content.utf8.count <= slowLimitBytes {
+                fullContent = content
+            } else {
+                // Exceeds even the slow limit, truncate full content to max slow limit
+                fullContent = truncate(string: content, limitBytes: slowLimitBytes)
+            }
         }
         
-        let item = ClipboardItem(content: finalContent, timestamp: Date())
+        // 4. Store
+        let item = ClipboardItem(content: displayContent, timestamp: Date())
+        
+        // Insert Fast Item
         history.insert(item, at: 0)
         
+        // Insert Blob if exists
+        if let blob = fullContent {
+            blobs[item.id] = blob
+        }
+        
+        // 5. Pruning (History Count)
         let limit = UserDefaults.standard.integer(forKey: AppConfig.Keys.clipboardHistorySize)
         let effectiveLimit = limit > 0 ? limit : 100
         
         if history.count > effectiveLimit {
+            let removedItems = history.suffix(from: effectiveLimit)
+            // Cleanup blobs for removed items
+            for removed in removedItems {
+                blobs.removeValue(forKey: removed.id)
+            }
             history = Array(history.prefix(effectiveLimit))
         }
         
@@ -108,20 +126,14 @@ class ClipboardStore: ObservableObject {
     
     private func truncate(string: String, limitBytes: Int) -> String {
         guard let data = string.data(using: .utf8) else { return string }
-        
-        // Fast path
         if data.count <= limitBytes { return string }
         
-        // Prefix bytes
         let truncatedData = data.prefix(limitBytes)
-        
-        // Attempt to create string. If successful, we are good.
-        // If nil (cut in middle of multi-byte char), back off slightly.
         if let safeString = String(data: truncatedData, encoding: .utf8) {
             return safeString
         }
         
-        // Back off 1-3 bytes to find valid UTF8 boundary
+        // Back off to find valid UTF8
         for i in 1...3 {
             if limitBytes - i > 0 {
                 let smaller = data.prefix(limitBytes - i)
@@ -130,25 +142,33 @@ class ClipboardStore: ObservableObject {
                 }
             }
         }
-        
-        // Fallback (extremely unlikely for valid UTF8 string)
         return String(string.prefix(limitBytes))
     }
     
     func delete(id: UUID) {
         history.removeAll { $0.id == id }
+        blobs.removeValue(forKey: id)
         save()
     }
     
     func copyToClipboard(item: ClipboardItem) {
         let pb = NSPasteboard.general
         pb.clearContents()
-        pb.setString(item.content, forType: .string)
+        
+        // Check if we have a larger "Blob" version
+        let contentToPaste = blobs[item.id] ?? item.content
+        pb.setString(contentToPaste, forType: .string)
     }
     
     func clear() {
         history.removeAll()
+        blobs.removeAll()
         save()
+    }
+    
+    /// Helper for Search: Returns full content if available, else fast content
+    func getFullContent(for item: ClipboardItem) -> String {
+        return blobs[item.id] ?? item.content
     }
     
     // MARK: - Encryption & Persistence
@@ -159,7 +179,6 @@ class ClipboardStore: ObservableObject {
            let keyData = Data(base64Encoded: keyString) {
             return SymmetricKey(data: keyData)
         } else {
-            // Generate new 256-bit key
             let key = SymmetricKey(size: .bits256)
             let keyData = key.withUnsafeBytes { Data($0) }
             defaults.set(keyData.base64EncodedString(), forKey: keyStorageName)
@@ -169,32 +188,57 @@ class ClipboardStore: ObservableObject {
 
     private func save() {
         do {
-            let data = try JSONEncoder().encode(history)
             let key = getEncryptionKey()
             
-            // Encrypt using AES-GCM
-            let sealedBox = try AES.GCM.seal(data, using: key)
-            if let combined = sealedBox.combined {
+            // 1. Save History (Fast)
+            let historyData = try JSONEncoder().encode(history)
+            let historyBox = try AES.GCM.seal(historyData, using: key)
+            if let combined = historyBox.combined {
                 try combined.write(to: fileURL)
             }
+            
+            // 2. Save Blobs (Slow)
+            if !blobs.isEmpty {
+                let blobsData = try JSONEncoder().encode(blobs)
+                let blobsBox = try AES.GCM.seal(blobsData, using: key)
+                if let combined = blobsBox.combined {
+                    try combined.write(to: blobsURL)
+                }
+            } else {
+                // If empty, delete file to keep clean
+                try? FileManager.default.removeItem(at: blobsURL)
+            }
+            
         } catch {
             print("Clipboard Save Error: \(error)")
         }
     }
     
     private func load() {
-        guard let encryptedData = try? Data(contentsOf: fileURL) else { return }
+        let key = getEncryptionKey()
+        let decoder = JSONDecoder()
         
-        do {
-            let key = getEncryptionKey()
-            let sealedBox = try AES.GCM.SealedBox(combined: encryptedData)
-            let decryptedData = try AES.GCM.open(sealedBox, using: key)
-            
-            if let loaded = try? JSONDecoder().decode([ClipboardItem].self, from: decryptedData) {
-                self.history = loaded
+        // 1. Load History
+        if let encryptedData = try? Data(contentsOf: fileURL) {
+            do {
+                let sealedBox = try AES.GCM.SealedBox(combined: encryptedData)
+                let decryptedData = try AES.GCM.open(sealedBox, using: key)
+                self.history = try decoder.decode([ClipboardItem].self, from: decryptedData)
+            } catch {
+                print("Clipboard History Load Error: \(error)")
             }
-        } catch {
-            print("Clipboard Load Error (Decryption failed): \(error)")
+        }
+        
+        // 2. Load Blobs
+        if let encryptedBlobs = try? Data(contentsOf: blobsURL) {
+            do {
+                let sealedBox = try AES.GCM.SealedBox(combined: encryptedBlobs)
+                let decryptedData = try AES.GCM.open(sealedBox, using: key)
+                self.blobs = try decoder.decode([UUID: String].self, from: decryptedData)
+            } catch {
+                print("Clipboard Blobs Load Error: \(error)")
+                // It's okay if this fails, we just lose the "Full" versions, functionality remains
+            }
         }
     }
 }
