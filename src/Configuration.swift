@@ -26,6 +26,7 @@ struct AppConfig {
         static let clipboardShortcutModifier = "clipboardShortcutModifier"
         static let clipboardMaxLines = "clipboardMaxLines"
         static let clipboardHistorySize = "clipboardHistorySize"
+        static let clipboardMaxImages = "clipboardMaxImages"
         
         // Text Editor Integration
         static let clipboardShiftEnterToEditor = "clipboardShiftEnterToEditor"
@@ -64,6 +65,7 @@ struct AppConfig {
         Keys.clipboardShortcutModifier: "command",
         Keys.clipboardMaxLines: 2,
         Keys.clipboardHistorySize: 100,
+        Keys.clipboardMaxImages: 50,
         
         // Defaults for Editor
         Keys.clipboardShiftEnterToEditor: true,

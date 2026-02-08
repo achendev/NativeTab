@@ -26,6 +26,7 @@ struct SettingsView: View {
     @AppStorage(AppConfig.Keys.clipboardShortcutModifier) private var clipboardShortcutModifier = "command"
     @AppStorage(AppConfig.Keys.clipboardMaxLines) private var clipboardMaxLines = 2
     @AppStorage(AppConfig.Keys.clipboardHistorySize) private var clipboardHistorySize = 100
+    @AppStorage(AppConfig.Keys.clipboardMaxImages) private var clipboardMaxImages = 50
     
     // New Text Editor Settings
     @AppStorage(AppConfig.Keys.clipboardShiftEnterToEditor) private var clipboardShiftEnterToEditor = true
@@ -189,10 +190,19 @@ struct SettingsView: View {
                                     .foregroundColor(.secondary)
                                 
                                 HStack {
-                                    Text("Max Items:")
+                                    Text("Max Text Items:")
                                         .font(.caption)
                                         .frame(width: 90, alignment: .leading)
                                     TextField("100", value: $clipboardHistorySize, formatter: NumberFormatter())
+                                        .frame(width: 50)
+                                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                                }
+                                
+                                HStack {
+                                    Text("Max Images:")
+                                        .font(.caption)
+                                        .frame(width: 90, alignment: .leading)
+                                    TextField("50", value: $clipboardMaxImages, formatter: NumberFormatter())
                                         .frame(width: 50)
                                         .textFieldStyle(RoundedBorderTextFieldStyle())
                                 }

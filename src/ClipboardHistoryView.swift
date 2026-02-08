@@ -6,8 +6,11 @@ class ClipboardViewModel: ObservableObject {
     @Published var filteredItems: [ClipboardItem] = []
     @Published var selectedItemID: UUID? = nil
     
-    // New: Deep Search State
+    // Deep Search State
     @Published var isDeepSearchEnabled = false
+    
+    // Image Filter State
+    @Published var isImageOnlyEnabled = false
     
     private var store: ClipboardStore
     private var cancellables = Set<AnyCancellable>()
@@ -15,22 +18,29 @@ class ClipboardViewModel: ObservableObject {
     init(store: ClipboardStore) {
         self.store = store
         
-        // 1. Synchronous Init (Fixes Open Delay)
-        // We populate the list immediately so there is no visual gap when the window opens.
+        // 1. Synchronous Init
         self.filteredItems = store.history
         if let first = store.history.first {
             self.selectedItemID = first.id
         }
         
         // 2. Setup Pipeline
-        // We debounce ONLY the text changes to avoid jitter while typing.
-        // History updates and Deep Search Toggle should be immediate.
         $searchText
             .debounce(for: .milliseconds(100), scheduler: RunLoop.main) 
-            .combineLatest(store.$history, $isDeepSearchEnabled)
+            .combineLatest(store.$history, $isDeepSearchEnabled, $isImageOnlyEnabled)
             .receive(on: DispatchQueue.global(qos: .userInitiated))
-            .map { (text, history, deepSearch) -> [ClipboardItem] in
-                return SearchService.smartFilter(history, query: text) { item in
+            .map { (text, history, deepSearch, imageOnly) -> [ClipboardItem] in
+                var baseItems = history
+                
+                // Image Only Filter
+                if imageOnly {
+                    baseItems = baseItems.filter { $0.type == .image }
+                    // When image filter is on, text search is ignored/blocked
+                    return baseItems
+                }
+                
+                // Normal Text Search
+                return SearchService.smartFilter(baseItems, query: text) { item in
                     if deepSearch {
                         return store.getFullContent(for: item)
                     } else {
@@ -110,7 +120,25 @@ struct ClipboardHistoryView: View {
                     TextField("Search clipboard...", text: $viewModel.searchText)
                         .textFieldStyle(.plain)
                         .focused($isSearchFocused)
+                        .disabled(viewModel.isImageOnlyEnabled)
+                        .opacity(viewModel.isImageOnlyEnabled ? 0.5 : 1.0)
                     
+                    // Image Filter Button
+                    Toggle(isOn: $viewModel.isImageOnlyEnabled) {
+                        Image(systemName: "photo")
+                            .foregroundColor(viewModel.isImageOnlyEnabled ? .accentColor : .secondary)
+                    }
+                    .toggleStyle(.button)
+                    .buttonStyle(.borderless)
+                    .help("Show Only Images (Blocks Search)")
+                    .onChange(of: viewModel.isImageOnlyEnabled) { enabled in
+                        if enabled {
+                            viewModel.searchText = "" // Clear search when switching to images
+                        } else {
+                            isSearchFocused = true // Refocus when disabling
+                        }
+                    }
+
                     // Deep Search Toggle
                     Toggle(isOn: $viewModel.isDeepSearchEnabled) {
                         Image(systemName: "square.stack.3d.forward.dottedline")
@@ -118,7 +146,8 @@ struct ClipboardHistoryView: View {
                     }
                     .toggleStyle(.button)
                     .buttonStyle(.borderless)
-                    .help("Deep Search: Include full content of large items (Slower)")
+                    .disabled(viewModel.isImageOnlyEnabled) // Disable deep search for images
+                    .help("Deep Search: Include full content of large items")
                 }
                 .padding(10)
                 .background(Color(NSColor.controlBackgroundColor))
@@ -227,14 +256,33 @@ struct ClipboardRow: View {
     
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            Text(item.content)
-                .font(.system(.body, design: .monospaced))
-                .lineLimit(maxLines > 0 ? maxLines : nil)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .foregroundColor(isHighlighted ? .white : .primary)
-                .padding(.trailing, 20)
             
+            // Content Layout
+            if item.type == .image, let data = item.thumbnailData, let nsImage = NSImage(data: data) {
+                // Image Mode: Full Width Preview, No Text Info
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // Restrict max height reasonably (e.g. 200px), but allow it to shrink
+                    // This prevents empty space if the image is wide and short
+                    .frame(maxHeight: 200)
+                    .cornerRadius(4)
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.gray.opacity(0.3), lineWidth: 1))
+            } else {
+                // Text Mode
+                HStack(alignment: .top, spacing: 10) {
+                    Text(item.content)
+                        .font(.system(.body, design: .monospaced))
+                        .lineLimit(maxLines > 0 ? maxLines : nil)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .foregroundColor(isHighlighted ? .white : .primary)
+                }
+                .padding(.trailing, 20)
+            }
+            
+            // Timestamp / Delete Button
             if isShiftDown {
                 Button(action: onDelete) {
                     Image(systemName: "trash")
@@ -243,12 +291,15 @@ struct ClipboardRow: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Delete item")
+                .padding(4)
             } else {
                 Text(rowDateFormatter.string(from: item.timestamp))
                     .font(.system(size: 9, weight: .regular, design: .default))
                     .foregroundColor(isHighlighted ? .white.opacity(0.6) : .secondary.opacity(0.6))
-                    .padding(.top, -7.2)
-                    .padding(.trailing, -7.2)
+                    // When showing image, add shadow and adjust padding to overlay top-right corner
+                    .shadow(color: item.type == .image ? Color.black.opacity(0.5) : Color.clear, radius: 1, x: 0, y: 0)
+                    .padding(.top, item.type == .image ? 4 : -7.2)
+                    .padding(.trailing, item.type == .image ? 4 : -7.2)
             }
         }
         .padding(.vertical, 8)

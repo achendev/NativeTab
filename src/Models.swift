@@ -66,10 +66,39 @@ struct Connection: Identifiable, Codable {
 }
 
 // Clipboard Model
+enum ClipboardType: String, Codable {
+    case text
+    case image
+}
+
 struct ClipboardItem: Identifiable, Codable {
     var id = UUID()
-    var content: String
+    var content: String // For images, this is the description (e.g. "Image 500x500")
     var timestamp: Date
+    var type: ClipboardType = .text
+    var thumbnailData: Data? = nil // For images
+    
+    enum CodingKeys: String, CodingKey {
+        case id, content, timestamp, type, thumbnailData
+    }
+    
+    init(id: UUID = UUID(), content: String, timestamp: Date, type: ClipboardType = .text, thumbnailData: Data? = nil) {
+        self.id = id
+        self.content = content
+        self.timestamp = timestamp
+        self.type = type
+        self.thumbnailData = thumbnailData
+    }
+    
+    // Backward compatibility for old JSON that lacked 'type' and 'thumbnailData'
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        content = try container.decode(String.self, forKey: .content)
+        timestamp = try container.decode(Date.self, forKey: .timestamp)
+        type = try container.decodeIfPresent(ClipboardType.self, forKey: .type) ?? .text
+        thumbnailData = try container.decodeIfPresent(Data.self, forKey: .thumbnailData)
+    }
 }
 
 // Data Wrapper for Internal Persistence
