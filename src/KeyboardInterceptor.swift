@@ -136,18 +136,48 @@ func activateApp(bundleID: String) {
 
 func activateFineTerm() {
     DispatchQueue.main.async {
-        if let appDelegate = NSApp.delegate as? AppDelegate,
-           let window = appDelegate.window {
-            NSApp.unhide(nil)
-            if window.isMiniaturized { window.deminiaturize(nil) }
-            
-            // Force snap to Terminal immediately on activation shortcut
+        guard let appDelegate = NSApp.delegate as? AppDelegate,
+              let window = appDelegate.window else { return }
+
+        // 1. Visual Prep: Unhide and Deminiaturize
+        NSApp.unhide(nil)
+        if window.isMiniaturized { window.deminiaturize(nil) }
+        
+        // 2. Logic: Snap
+        if UserDefaults.standard.bool(forKey: AppConfig.Keys.snapToTerminal) {
             appDelegate.snapToTerminal()
-            
-            window.makeKeyAndOrderFront(nil)
-            window.orderFrontRegardless()
         }
+
+        // 3. Window System: Order Front
+        // "orderFrontRegardless" allows the window to move to the active space or appear above others
+        // crucial when coming from another Space.
+        window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
+        
+        // 4. Application: Activate
+        // We use NSApp.activate because it works within the app context.
+        // Doing this AFTER orderFront tells the system "This specific window is the reason we are activating".
         NSApp.activate(ignoringOtherApps: true)
+        
+        // 5. CRITICAL FIX for Space Switching Lag:
+        // When switching Spaces (e.g. from Chrome on Space 2 to FineTerm on Space 1), 
+        // macOS initially focuses the *last active app* on Space 1 (Terminal) before processing 
+        // our activation request. This creates a race condition where FineTerm appears but 
+        // Terminal keeps focus (gray search bar).
+        // We must re-assert focus after a tiny delay to ensure we win the tug-of-war.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+        }
+        
+        // 6. Secondary Safety Net
+        // If the space switch animation is slow (e.g. ProMotion disabled or old Mac), retry slightly later.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            if !NSApp.isActive {
+                NSApp.activate(ignoringOtherApps: true)
+                window.makeKeyAndOrderFront(nil)
+            }
+        }
     }
 }
 
@@ -155,6 +185,37 @@ func activateTerminal() {
     DispatchQueue.main.async {
         activateApp(bundleID: "com.apple.Terminal")
     }
+}
+
+// Helper to get real front app, mitigating NSWorkspace lag
+func getRealFrontmostApp() -> NSRunningApplication? {
+    let workspaceApp = NSWorkspace.shared.frontmostApplication
+    
+    // If NSWorkspace says it's NOT Terminal, trust it (optimization)
+    if let id = workspaceApp?.bundleIdentifier, id != "com.apple.Terminal" {
+        return workspaceApp
+    }
+    
+    // If NSWorkspace says Terminal, verify with Window List (Z-Order)
+    // This catches the case where user just clicked Chrome, but NSWorkspace hasn't updated yet.
+    let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+    guard let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
+        return workspaceApp
+    }
+    
+    for info in list {
+        if let pidNumber = info[kCGWindowOwnerPID as String] as? NSNumber {
+            let pid = pidNumber.int32Value
+            if let app = NSRunningApplication(processIdentifier: pid) {
+                // Return first regular app
+                if app.activationPolicy == .regular {
+                    return app
+                }
+            }
+        }
+    }
+    
+    return workspaceApp
 }
 
 func keyboardEventCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, refcon: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
@@ -181,9 +242,10 @@ func keyboardEventCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGE
     let secondActivation = defaults.bool(forKey: AppConfig.Keys.secondActivationToTerminal)
     let thirdActivation = defaults.bool(forKey: AppConfig.Keys.thirdActivationToOrigin)
     
-    let frontApp = NSWorkspace.shared.frontmostApplication
+    // Mitigate Lag: Use getRealFrontmostApp instead of NSWorkspace directly
+    let frontApp = getRealFrontmostApp()
     let isTerminalFront = frontApp?.bundleIdentifier == "com.apple.Terminal"
-    let isFineTermFront = NSApp.isActive // Reliable for own app check
+    let isFineTermFront = NSRunningApplication.current.isActive // Reliable for own app check
     
     if let mainCode = KeyboardInterceptor.getKeyCode(for: mainKey),
        keyCode == Int64(mainCode),
@@ -262,4 +324,3 @@ func keyboardEventCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGE
     
     return Unmanaged.passUnretained(event)
 }
-
