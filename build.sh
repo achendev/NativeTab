@@ -29,7 +29,7 @@ rm -f "$ICON_PNG_MASTER" "$APP_NAME.icns"
 echo "▶ Generating Pro Icon from FineTerm.png..."
 
 # Run the Swift icon generator (uses icon_gen.swift in project root)
-swift icon_gen.swift
+    swift icon_gen.swift
 
 if [ ! -f "$ICON_PNG_MASTER" ]; then
     echo "⚠️  WARNING: Icon generation failed."
@@ -64,11 +64,12 @@ if [ -f "$APP_NAME.icns" ]; then
 fi
 
 # --- 4. Compile Swift ---
-echo "▶ Compiling Sources..."
-# Targeting macOS 12.0 for SwiftUI features
+# Detect Architecture (Fix for Intel Macs)
+ARCH=$(uname -m)
+echo "▶ Compiling Sources for $ARCH..."
 swiftc ./src/*.swift \
     -o "$APP_BUNDLE/Contents/MacOS/$APP_NAME" \
-    -target arm64-apple-macosx12.0 \
+    -target "$ARCH-apple-macosx12.0" \
     -O
 
 # --- 5. Create Info.plist ---
@@ -128,6 +129,8 @@ if [ "$INSTALL_MODE" = true ]; then
     
     # 1. Kill running app if exists
     pkill -x "$APP_NAME" || true
+    # Wait for process to die to prevent 'busy' errors
+    sleep 0.5
     
     # 2. Replace App Bundle
     TARGET_DIR="/Applications/$APP_BUNDLE"
@@ -138,8 +141,8 @@ if [ "$INSTALL_MODE" = true ]; then
     
     # 3. Relaunch
     echo "▶ Launching $APP_NAME..."
-    open "$TARGET_DIR"
+    # Use -a to specify app, which handles LaunchServices registration implicitly
+    open -a "$TARGET_DIR"
     echo "✅  Re-installed and Launched."
 fi
 echo "--------------------------------------------------------"
-

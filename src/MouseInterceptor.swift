@@ -28,46 +28,39 @@ func eventTapCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent,
     
     let isDebug = UserDefaults.standard.bool(forKey: "debugMode")
     
-    // Robust Hit-Testing:
+    // [001] Tahoe Compatibility Fix: Use AX API for Hit-Testing
+    // Replaced geometric CGWindowList check with Accessibility Hit-Test
     func isClickInTerminalWindow(_ point: CGPoint) -> Bool {
-        let options: CGWindowListOption = [.optionOnScreenOnly]
-        
-        guard let windowList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
+        // 1. Get Terminal PID
+        guard let terminalApp = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == "com.apple.Terminal" }) else {
             return false
         }
+        let terminalPID = terminalApp.processIdentifier
         
-        for windowInfo in windowList {
-            guard let boundsDict = windowInfo[kCGWindowBounds as String] as? [String: CGFloat],
-                  let x = boundsDict["X"],
-                  let y = boundsDict["Y"],
-                  let width = boundsDict["Width"],
-                  let height = boundsDict["Height"] else {
-                continue
-            }
-            
-            let windowRect = CGRect(x: x, y: y, width: width, height: height)
-            
-            if windowRect.contains(point) {
-                // We found a visible window at this coordinate.
-                guard let ownerName = windowInfo[kCGWindowOwnerName as String] as? String else {
-                    return false
-                }
-                
-                // IGNORE system overlays from Window Server (Cursor, Shadows, etc.)
-                if ownerName == "Window Server" {
-                    continue // Keep looking at windows below this one
-                }
-                
-                if ownerName == "Terminal" {
-                    return true // Found the Terminal window!
-                } else {
-                    // It is obstructed by another app (e.g. Dock, Finder, Chrome)
-                    if isDebug { print("DEBUG: Click blocked by: \(ownerName)") }
-                    return false
-                }
-            }
+        // 2. Ask Accessibility API what is under the mouse
+        let systemWide = AXUIElementCreateSystemWide()
+        var element: AXUIElement?
+        
+        // AX coordinates match global screen coordinates (CGEvent)
+        let error = AXUIElementCopyElementAtPosition(systemWide, Float(point.x), Float(point.y), &element)
+        
+        guard error == .success, let targetElement = element else {
+            if isDebug { print("DEBUG: AX Hit-Test failed or found nothing.") }
+            return false
         }
-        return false
+
+        // 3. Check owner PID of the element found
+        var elementPID: pid_t = 0
+        let pidError = AXUIElementGetPid(targetElement, &elementPID)
+        
+        if pidError == .success && elementPID == terminalPID {
+            return true
+        } else {
+            if isDebug { 
+                print("DEBUG: Click blocked. Owner PID: \(elementPID) != Terminal PID: \(terminalPID)") 
+            }
+            return false
+        }
     }
 
     // 1. Handle Right Click -> Paste (Cmd+V)
@@ -114,10 +107,7 @@ func eventTapCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent,
              return Unmanaged.passUnretained(event)
         }
         
-        // FIX: Removed the check !isClickInTerminalWindow(event.location)
-        // If the drag started inside the terminal (lastMouseDownPoint != .zero),
-        // we should respect the selection even if the mouse release happens outside.
-        
+        // Note: We use the decision made at MouseDown to determine if this is a valid selection
         if lastMouseDownPoint == .zero {
             return Unmanaged.passUnretained(event)
         }
