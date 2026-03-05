@@ -187,30 +187,51 @@ func activateTerminal() {
     }
 }
 
-// Helper to get real front app, mitigating NSWorkspace lag
+// Robust Helper to find the REAL frontmost app, bypassing NSWorkspace lag
 func getRealFrontmostApp() -> NSRunningApplication? {
-    let workspaceApp = NSWorkspace.shared.frontmostApplication
+    let workspace = NSWorkspace.shared
+    let workspaceApp = workspace.frontmostApplication
+    let myBundleID = Bundle.main.bundleIdentifier ?? "com.local.FineTerm"
     
-    // If NSWorkspace says it's NOT Terminal, trust it (optimization)
-    if let id = workspaceApp?.bundleIdentifier, id != "com.apple.Terminal" {
+    // 1. Absolute Truth: Are WE active?
+    if NSRunningApplication.current.isActive {
+        return NSRunningApplication.current
+    }
+    
+    // 2. Check for Stale Workspace Data
+    // If Workspace says WE are active, but step 1 said NO, then Workspace is lagging.
+    // We must ignore Workspace and check Window List Z-Order.
+    var trustWorkspace = true
+    if let id = workspaceApp?.bundleIdentifier {
+        if id == myBundleID {
+            trustWorkspace = false
+        }
+    }
+    
+    if trustWorkspace {
         return workspaceApp
     }
     
-    // If NSWorkspace says Terminal, verify with Window List (Z-Order)
-    // This catches the case where user just clicked Chrome, but NSWorkspace hasn't updated yet.
+    // 3. Truth from Window Server (Z-Order)
+    // Find the first window that isn't ours and belongs to a regular app
     let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
     guard let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
         return workspaceApp
     }
     
     for info in list {
-        if let pidNumber = info[kCGWindowOwnerPID as String] as? NSNumber {
-            let pid = pidNumber.int32Value
-            if let app = NSRunningApplication(processIdentifier: pid) {
-                // Return first regular app
-                if app.activationPolicy == .regular {
-                    return app
-                }
+        // Filter for normal window layer (0)
+        guard let layer = info[kCGWindowLayer as String] as? Int, layer == 0 else { continue }
+        guard let pidNumber = info[kCGWindowOwnerPID as String] as? NSNumber else { continue }
+        
+        let pid = pidNumber.int32Value
+        if let app = NSRunningApplication(processIdentifier: pid) {
+            // Ignore ourselves (we might be fading out)
+            if app.bundleIdentifier == myBundleID { continue }
+            
+            // Found top-most non-FineTerm app (Terminal, Chrome, etc)
+            if app.activationPolicy == .regular {
+                return app
             }
         }
     }
@@ -242,30 +263,35 @@ func keyboardEventCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGE
     let secondActivation = defaults.bool(forKey: AppConfig.Keys.secondActivationToTerminal)
     let thirdActivation = defaults.bool(forKey: AppConfig.Keys.thirdActivationToOrigin)
     
-    // Mitigate Lag: Use getRealFrontmostApp instead of NSWorkspace directly
+    // Get Robust Front App
     let frontApp = getRealFrontmostApp()
     let isTerminalFront = frontApp?.bundleIdentifier == "com.apple.Terminal"
-    let isFineTermFront = NSRunningApplication.current.isActive // Reliable for own app check
+    let isFineTermFront = NSRunningApplication.current.isActive // Absolute local truth
     
     if let mainCode = KeyboardInterceptor.getKeyCode(for: mainKey),
        keyCode == Int64(mainCode),
        isModifierMatch(flags: flags, targetStr: mainMod) {
         
-        // Safety: If global anywhere is off, we only care if we are in Terminal, FineTerm, or it's a valid trigger context
         if !mainAnywhere && !isTerminalFront && !isFineTermFront {
              return Unmanaged.passUnretained(event)
         }
         
-        if debug { print("DEBUG: Shortcut Pressed. Front: \(frontApp?.localizedName ?? "Unknown")") }
+        if debug { 
+            print("DEBUG: Shortcut Pressed.")
+            print("   Visual Front: \(frontApp?.localizedName ?? "Unknown")")
+            print("   isTerminalFront: \(isTerminalFront)")
+            print("   isFineTermFront: \(isFineTermFront)")
+            print("   Saved Origin: \(savedOriginBundleID ?? "None")")
+        }
         
         // --- LOOP LOGIC ---
         
         // 1. FineTerm -> Terminal
         if isFineTermFront {
             if secondActivation {
-                if debug { print("DEBUG: Loop Step 2: FineTerm -> Terminal") }
+                if debug { print("DEBUG: Step 2: FineTerm -> Terminal") }
                 activateTerminal()
-                return nil // Swallow event
+                return nil
             }
             return Unmanaged.passUnretained(event)
         }
@@ -277,15 +303,15 @@ func keyboardEventCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGE
                originID != "com.apple.Terminal",
                originID != Bundle.main.bundleIdentifier {
                 
-                if debug { print("DEBUG: Loop Step 3: Terminal -> Origin (\(originID))") }
+                if debug { print("DEBUG: Step 3: Terminal -> Origin (\(originID))") }
                 DispatchQueue.main.async {
                     activateApp(bundleID: originID)
                 }
-                return nil // Swallow event
+                return nil
             }
             
             // Fallback: Terminal -> FineTerm
-            if debug { print("DEBUG: Loop Step 3 (Fallback): Terminal -> FineTerm") }
+            if debug { print("DEBUG: Step 3 (Fallback): Terminal -> FineTerm") }
             activateFineTerm()
             return nil
         }
@@ -293,10 +319,13 @@ func keyboardEventCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGE
         // 3. Origin -> FineTerm
         if !isFineTermFront && !isTerminalFront {
             if let app = frontApp, let bundleID = app.bundleIdentifier {
-                savedOriginBundleID = bundleID
-                if debug { print("DEBUG: Loop Step 1: Origin (\(app.localizedName ?? bundleID)) -> FineTerm") }
-            } else {
-                if debug { print("DEBUG: Loop Step 1: Unknown Origin -> FineTerm") }
+                // Prevent overwriting origin with FineTerm or Terminal
+                if bundleID != Bundle.main.bundleIdentifier && bundleID != "com.apple.Terminal" {
+                    savedOriginBundleID = bundleID
+                    if debug { print("DEBUG: Step 1: Origin (\(app.localizedName ?? bundleID)) -> FineTerm [Saved]") }
+                } else {
+                    if debug { print("DEBUG: Step 1: Origin ignored (\(bundleID)) -> FineTerm") }
+                }
             }
             
             activateFineTerm()
