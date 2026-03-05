@@ -6,6 +6,8 @@ import Cocoa
 class ClipboardStore: ObservableObject {
     @Published var history: [ClipboardItem] = []
     // Separate storage for large text blobs AND full images: [UUID: Base64String]
+    // We modify this on the Main Thread to keep it synchronized with `history` for the UI,
+    // but we assume copy-on-write semantics when passing it to background threads for saving.
     private var blobs: [UUID: String] = [:]
     
     private let fileURL: URL
@@ -13,6 +15,12 @@ class ClipboardStore: ObservableObject {
     
     private var timer: Timer?
     private var lastChangeCount: Int
+    
+    // Serial queue for processing heavy data (images, truncation) off the main thread
+    private let processingQueue = DispatchQueue(label: "com.fineterm.clipboard.processing", qos: .userInitiated)
+    
+    // Serial queue for saving to disk (lowest priority)
+    private let saveQueue = DispatchQueue(label: "com.fineterm.clipboard.save", qos: .utility)
     
     // Key for storing the encryption key in UserDefaults
     private let keyStorageName = "FineTermClipboardKey"
@@ -54,63 +62,125 @@ class ClipboardStore: ObservableObject {
             lastChangeCount = currentCount
             
             // Priority: Check for Image first, then Text
-            // This prevents "text" version of image (e.g. file path or URL) taking precedence if user explicitly copied image
+            // We read the basic object on Main Thread to ensure safety, then offload processing.
             if let image = pb.readObjects(forClasses: [NSImage.self], options: nil)?.first as? NSImage {
-                add(image: image)
+                processAndAdd(image: image)
             } else if let newString = pb.string(forType: .string) {
                 if !newString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    add(content: newString)
+                    processAndAdd(content: newString)
                 }
             }
         }
     }
     
-    // MARK: - Image Handling
+    // MARK: - Async Processing
     
-    func add(image: NSImage) {
-        // 1. Generate ID and Timestamp
-        let id = UUID()
-        let now = Date()
+    private func processAndAdd(image: NSImage) {
+        processingQueue.async { [weak self] in
+            guard let self = self else { return }
+            
+            // 1. Generate ID and Timestamp
+            let id = UUID()
+            let now = Date()
+            
+            // 2. Prepare Thumbnail
+            // Resize to max 300x300 for list view
+            let thumbSize = NSSize(width: 300, height: 300)
+            let thumbnail = self.resize(image: image, to: thumbSize)
+            
+            // Optimize: Convert to JPEG (0.7) to keep file size small
+            var thumbData = thumbnail.tiffRepresentation
+            if let tiff = thumbData, let bitmap = NSBitmapImageRep(data: tiff) {
+                if let jpeg = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.7]) {
+                    thumbData = jpeg
+                }
+            }
+            
+            // 3. Prepare Full Blob (Base64 encoded PNG) - Heavy Operation
+            var fullBlob: String? = nil
+            if let tiff = image.tiffRepresentation,
+               let bitmap = NSBitmapImageRep(data: tiff),
+               let pngData = bitmap.representation(using: .png, properties: [:]) {
+                fullBlob = pngData.base64EncodedString()
+            }
+            
+            // 4. Create Item
+            let sizeDesc = "Image \(Int(image.size.width))x\(Int(image.size.height))"
+            let item = ClipboardItem(
+                id: id,
+                content: sizeDesc,
+                timestamp: now,
+                type: .image,
+                thumbnailData: thumbData
+            )
+            
+            // 5. Update UI on Main Thread
+            DispatchQueue.main.async {
+                self.insertItem(item, blob: fullBlob)
+            }
+        }
+    }
+    
+    private func processAndAdd(content: String) {
+        // Read preferences safely on main thread if possible, or assume defaults in background.
+        // UserDefaults is thread-safe.
+        let fastLimitKB = max(1, UserDefaults.standard.integer(forKey: AppConfig.Keys.clipboardItemSizeLimitKB))
+        let slowLimitMB = max(1, UserDefaults.standard.integer(forKey: AppConfig.Keys.clipboardLargeItemSizeLimitMB))
         
-        // 2. Prepare Thumbnail
-        // Resize to max 600x600 for list view (High Quality / Retina)
-        // Previous 100x100 was causing blur on new large preview layout
-        let thumbSize = NSSize(width: 300, height: 300)
-        let thumbnail = resize(image: image, to: thumbSize)
-        
-        // Optimize: Convert to JPEG (0.7) to keep file size small despite larger resolution
-        var thumbData = thumbnail.tiffRepresentation
-        if let tiff = thumbData, let bitmap = NSBitmapImageRep(data: tiff) {
-            if let jpeg = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.7]) {
-                thumbData = jpeg
+        processingQueue.async { [weak self] in
+            guard let self = self else { return }
+            
+            let fastLimitBytes = fastLimitKB * 1024
+            let slowLimitBytes = slowLimitMB * 1024 * 1024
+            
+            var displayContent = content
+            var fullContent: String? = nil
+            
+            // Size Logic
+            if content.utf8.count > fastLimitBytes {
+                displayContent = self.truncate(string: content, limitBytes: fastLimitBytes)
+                
+                if content.utf8.count <= slowLimitBytes {
+                    fullContent = content
+                } else {
+                    fullContent = self.truncate(string: content, limitBytes: slowLimitBytes)
+                }
+            }
+            
+            let item = ClipboardItem(content: displayContent, timestamp: Date())
+            
+            DispatchQueue.main.async {
+                self.insertItem(item, blob: fullContent)
+            }
+        }
+    }
+    
+    // Execute on Main Thread to ensure Thread Safety with UI
+    private func insertItem(_ item: ClipboardItem, blob: String?) {
+        // 1. Check duplication (only for Text)
+        if item.type == .text, let first = history.first, first.type == .text {
+            // If new item has a blob, compare with existing blob
+            if let newBlob = blob {
+                if let existingBlob = blobs[first.id], existingBlob == newBlob { return }
+            } else {
+                // If no blob, compares short content. 
+                // Edge case: If existing had blob but new doesn't (smaller), 
+                // check if existing.content == new.content.
+                if first.content == item.content { return }
             }
         }
         
-        // 3. Prepare Description
-        let sizeDesc = "Image \(Int(image.size.width))x\(Int(image.size.height))"
-        
-        // 4. Create Item
-        let item = ClipboardItem(
-            id: id,
-            content: sizeDesc,
-            timestamp: now,
-            type: .image,
-            thumbnailData: thumbData
-        )
-        
-        // 5. Store Full Image in Blobs (Base64 encoded PNG)
-        if let tiff = image.tiffRepresentation,
-           let bitmap = NSBitmapImageRep(data: tiff),
-           let pngData = bitmap.representation(using: .png, properties: [:]) {
-            blobs[id] = pngData.base64EncodedString()
-        }
-        
-        // 6. Insert
+        // 2. Insert
         history.insert(item, at: 0)
         
-        // 7. Prune
+        if let b = blob {
+            blobs[item.id] = b
+        }
+        
+        // 3. Prune
         pruneHistory()
         
+        // 4. Trigger Background Save
         save()
     }
     
@@ -121,12 +191,13 @@ class ClipboardStore: ObservableObject {
         let heightRatio = maxSize.height / image.size.height
         let ratio = min(widthRatio, heightRatio)
         
-        // Don't upscale if image is smaller than thumbnail box (prevents pixelation)
         let finalRatio = min(ratio, 1.0)
         
         let newSize = NSSize(width: image.size.width * finalRatio, height: image.size.height * finalRatio)
         
         let newImage = NSImage(size: newSize)
+        
+        // lockFocus is safe on background threads in macOS 10.12+
         newImage.lockFocus()
         image.draw(in: NSRect(origin: .zero, size: newSize),
                    from: NSRect(origin: .zero, size: image.size),
@@ -134,56 +205,6 @@ class ClipboardStore: ObservableObject {
                    fraction: 1.0)
         newImage.unlockFocus()
         return newImage
-    }
-    
-    // MARK: - Text Handling
-    
-    func add(content: String) {
-        // 1. Check duplication
-        if let first = history.first {
-            // Check text duplication
-            if first.type == .text {
-                if let blobContent = blobs[first.id] {
-                    if blobContent == content { return }
-                } else {
-                    if first.content == content { return }
-                }
-            }
-        }
-        
-        // 2. Limits Configuration
-        let fastLimitKB = max(1, UserDefaults.standard.integer(forKey: AppConfig.Keys.clipboardItemSizeLimitKB))
-        let fastLimitBytes = fastLimitKB * 1024
-        
-        let slowLimitMB = max(1, UserDefaults.standard.integer(forKey: AppConfig.Keys.clipboardLargeItemSizeLimitMB))
-        let slowLimitBytes = slowLimitMB * 1024 * 1024
-        
-        var displayContent = content
-        var fullContent: String? = nil
-        
-        // 3. Size Logic
-        if content.utf8.count > fastLimitBytes {
-            displayContent = truncate(string: content, limitBytes: fastLimitBytes)
-            
-            if content.utf8.count <= slowLimitBytes {
-                fullContent = content
-            } else {
-                fullContent = truncate(string: content, limitBytes: slowLimitBytes)
-            }
-        }
-        
-        // 4. Store
-        let item = ClipboardItem(content: displayContent, timestamp: Date())
-        history.insert(item, at: 0)
-        
-        if let blob = fullContent {
-            blobs[item.id] = blob
-        }
-        
-        // 5. Prune
-        pruneHistory()
-        
-        save()
     }
     
     // MARK: - Pruning Logic
@@ -195,13 +216,10 @@ class ClipboardStore: ObservableObject {
         let imageLimit = UserDefaults.standard.integer(forKey: AppConfig.Keys.clipboardMaxImages)
         let effectiveImageLimit = imageLimit > 0 ? imageLimit : 50
         
-        // 1. Enforce Image Count Limit (Sub-limit)
+        // 1. Enforce Image Count Limit
         let currentImages = history.filter { $0.type == .image }
         if currentImages.count > effectiveImageLimit {
-            // Remove oldest images until fit
-            // We need to remove them from main history
             let imagesToRemoveCount = currentImages.count - effectiveImageLimit
-            // The ones at the end of the filtered list are the oldest
             let imagesToRemove = currentImages.suffix(imagesToRemoveCount)
             let idsToRemove = Set(imagesToRemove.map { $0.id })
             
@@ -209,7 +227,7 @@ class ClipboardStore: ObservableObject {
             for id in idsToRemove { blobs.removeValue(forKey: id) }
         }
         
-        // 2. Enforce Global Limit (Total Items)
+        // 2. Enforce Global Limit
         if history.count > effectiveGlobalLimit {
             let removedItems = history.suffix(from: effectiveGlobalLimit)
             for removed in removedItems {
@@ -250,7 +268,6 @@ class ClipboardStore: ObservableObject {
         pb.clearContents()
         
         if item.type == .image {
-            // Retrieve blob, decode base64, write to pasteboard
             if let base64 = blobs[item.id],
                let data = Data(base64Encoded: base64),
                let image = NSImage(data: data) {
@@ -268,7 +285,6 @@ class ClipboardStore: ObservableObject {
         save()
     }
     
-    /// Helper for Search: Returns full content if available, else fast content
     func getFullContent(for item: ClipboardItem) -> String {
         return blobs[item.id] ?? item.content
     }
@@ -289,17 +305,31 @@ class ClipboardStore: ObservableObject {
     }
 
     private func save() {
+        // Snapshot the current state on Main Thread
+        // Arrays and Dictionaries in Swift are copy-on-write, so this is cheap
+        // until they are modified again (which happens rarely/later).
+        let historySnapshot = self.history
+        let blobsSnapshot = self.blobs
+        
+        // Dispatch File I/O to background
+        saveQueue.async { [weak self] in
+            guard let self = self else { return }
+            self.performSave(history: historySnapshot, blobs: blobsSnapshot)
+        }
+    }
+    
+    private func performSave(history: [ClipboardItem], blobs: [UUID: String]) {
         do {
             let key = getEncryptionKey()
             
-            // 1. Save History (Fast)
+            // 1. Save History
             let historyData = try JSONEncoder().encode(history)
             let historyBox = try AES.GCM.seal(historyData, using: key)
             if let combined = historyBox.combined {
                 try combined.write(to: fileURL)
             }
             
-            // 2. Save Blobs (Slow)
+            // 2. Save Blobs
             if !blobs.isEmpty {
                 let blobsData = try JSONEncoder().encode(blobs)
                 let blobsBox = try AES.GCM.seal(blobsData, using: key)
@@ -307,7 +337,6 @@ class ClipboardStore: ObservableObject {
                     try combined.write(to: blobsURL)
                 }
             } else {
-                // If empty, delete file to keep clean
                 try? FileManager.default.removeItem(at: blobsURL)
             }
             
@@ -317,10 +346,14 @@ class ClipboardStore: ObservableObject {
     }
     
     private func load() {
+        // Load can remain on init (Main Thread) as it only happens once on startup.
+        // Moving it to background would require showing a loading state in UI.
+        // Given constraints, we keep it sync for simplicity, assuming startup lag is acceptable
+        // vs runtime lag on copy/paste.
+        
         let key = getEncryptionKey()
         let decoder = JSONDecoder()
         
-        // 1. Load History
         if let encryptedData = try? Data(contentsOf: fileURL) {
             do {
                 let sealedBox = try AES.GCM.SealedBox(combined: encryptedData)
@@ -331,7 +364,6 @@ class ClipboardStore: ObservableObject {
             }
         }
         
-        // 2. Load Blobs
         if let encryptedBlobs = try? Data(contentsOf: blobsURL) {
             do {
                 let sealedBox = try AES.GCM.SealedBox(combined: encryptedBlobs)
