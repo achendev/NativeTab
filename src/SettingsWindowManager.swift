@@ -33,6 +33,12 @@ class SettingsWindow: NSWindow {
 
 class SettingsWindowManager: NSObject, NSWindowDelegate {
     private var window: SettingsWindow?
+    private var clipboardStore: ClipboardStore!
+    
+    init(store: ClipboardStore) {
+        self.clipboardStore = store
+        super.init()
+    }
     
     func open() {
         if let win = window {
@@ -54,7 +60,8 @@ class SettingsWindowManager: NSObject, NSWindowDelegate {
         newWindow.setFrameAutosaveName("Settings Window")
         newWindow.delegate = self
         
-        let settingsView = SettingsView()
+        // Pass store dependency
+        let settingsView = SettingsView(clipboardStore: clipboardStore)
         
         newWindow.contentView = NSHostingView(rootView: settingsView)
         

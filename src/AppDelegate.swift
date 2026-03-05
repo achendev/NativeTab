@@ -33,7 +33,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // 5. Setup Services
         clipboardStore = ClipboardStore()
         clipboardManager = ClipboardWindowManager(store: clipboardStore)
-        settingsManager = SettingsWindowManager()
+        // Pass the store to SettingsWindowManager
+        settingsManager = SettingsWindowManager(store: clipboardStore)
         
         // 6. Check Permissions & Launch
         checkPermissionsAndStart()

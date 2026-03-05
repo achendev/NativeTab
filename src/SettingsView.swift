@@ -1,6 +1,9 @@
 import SwiftUI
 
 struct SettingsView: View {
+    // Dependencies
+    @ObservedObject var clipboardStore: ClipboardStore
+
     // Configuration Keys
     @AppStorage(AppConfig.Keys.copyOnSelect) private var copyOnSelect = true
     @AppStorage(AppConfig.Keys.pasteOnRightClick) private var pasteOnRightClick = true
@@ -28,20 +31,18 @@ struct SettingsView: View {
     @AppStorage(AppConfig.Keys.clipboardHistorySize) private var clipboardHistorySize = 100
     @AppStorage(AppConfig.Keys.clipboardMaxImages) private var clipboardMaxImages = 50
     
-    // New Text Editor Settings
     @AppStorage(AppConfig.Keys.clipboardShiftEnterToEditor) private var clipboardShiftEnterToEditor = true
     @AppStorage(AppConfig.Keys.clipboardEditorBundleID) private var clipboardEditorBundleID = "com.apple.TextEdit"
     @AppStorage(AppConfig.Keys.clipboardTempExtension) private var clipboardTempExtension = "sh"
     @AppStorage(AppConfig.Keys.clipboardAutoDeleteTempFile) private var clipboardAutoDeleteTempFile = true
     @AppStorage(AppConfig.Keys.clipboardAutoDeleteDelay) private var clipboardAutoDeleteDelay = 2.0
     
-    // Storage Limits
     @AppStorage(AppConfig.Keys.clipboardItemSizeLimitKB) private var clipboardItemSizeLimitKB = 10
     @AppStorage(AppConfig.Keys.clipboardLargeItemSizeLimitMB) private var clipboardLargeItemSizeLimitMB = 5
     
     @State private var runOnStartup: Bool = LaunchAtLoginManager.isEnabled()
+    @State private var stats: ClipboardStats?
     
-    // Observe the bridge for the list of editors
     @ObservedObject private var editorBridge = TextEditorBridge.shared
     
     var body: some View {
@@ -225,6 +226,33 @@ struct SettingsView: View {
                                         .textFieldStyle(RoundedBorderTextFieldStyle())
                                 }
                                 
+                                Divider()
+                                
+                                // Statistics Section
+                                if let s = stats {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("Current Usage Stats:")
+                                            .font(.caption)
+                                            .bold()
+                                        
+                                        HStack {
+                                            Text("Items: \(s.totalItems)")
+                                            Spacer()
+                                            Text("Images: \(s.imageCount)")
+                                        }
+                                        .font(.caption)
+                                        
+                                        HStack {
+                                            Text("Index Size: \(formatBytes(s.historySizeBytes))")
+                                            Spacer()
+                                            Text("Big Blobs: \(formatBytes(s.blobsSizeBytes))")
+                                        }
+                                        .font(.caption)
+                                    }
+                                    .foregroundColor(.secondary)
+                                    .padding(.vertical, 4)
+                                }
+                                
                                 Button("Clear History") {
                                     NSApp.sendAction(#selector(AppDelegate.clearClipboardHistory), to: nil, from: nil)
                                 }
@@ -295,6 +323,17 @@ struct SettingsView: View {
         .frame(minWidth: 400, minHeight: 650)
         .onAppear {
             editorBridge.refreshEditors()
+            stats = clipboardStore.getStats()
         }
+        .onChange(of: clipboardStore.history.count) { _ in
+            stats = clipboardStore.getStats()
+        }
+    }
+    
+    func formatBytes(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        formatter.allowedUnits = [.useAll]
+        return formatter.string(fromByteCount: bytes)
     }
 }
