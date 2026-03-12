@@ -24,6 +24,10 @@ struct SettingsView: View {
     @AppStorage(AppConfig.Keys.thirdActivationToOrigin) private var thirdActivationToOrigin = true
     @AppStorage(AppConfig.Keys.escToTerminal) private var escToTerminal = false
     
+    @AppStorage(AppConfig.Keys.enableTerminalToggleShortcut) private var enableTerminalToggleShortcut = true
+    @AppStorage(AppConfig.Keys.terminalToggleShortcutKey) private var terminalToggleShortcutKey = "h"
+    @AppStorage(AppConfig.Keys.terminalToggleShortcutModifier) private var terminalToggleShortcutModifier = "command"
+    
     @AppStorage(AppConfig.Keys.enableClipboardManager) private var enableClipboardManager = false
     @AppStorage(AppConfig.Keys.clipboardShortcutKey) private var clipboardShortcutKey = "u"
     @AppStorage(AppConfig.Keys.clipboardShortcutModifier) private var clipboardShortcutModifier = "command"
@@ -56,7 +60,7 @@ struct SettingsView: View {
                             .font(.headline)
                         
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("Shortcut:")
+                            Text("Main Shortcut:")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                             
@@ -87,6 +91,35 @@ struct SettingsView: View {
                         }
                         
                         Toggle("Esc to Terminal", isOn: $escToTerminal)
+                        
+                        Divider().padding(.vertical, 4)
+                        
+                        Toggle("Enable Terminal Toggle Shortcut", isOn: $enableTerminalToggleShortcut)
+                        
+                        if enableTerminalToggleShortcut {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Shortcut:")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                
+                                HStack {
+                                    Picker("", selection: $terminalToggleShortcutModifier) {
+                                        Text("Command").tag("command")
+                                        Text("Control").tag("control")
+                                        Text("Option").tag("option")
+                                    }
+                                    .frame(width: 100)
+                                    .labelsHidden()
+                                    
+                                    Text("+")
+                                    
+                                    TextField("Key", text: $terminalToggleShortcutKey)
+                                        .frame(width: 40)
+                                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                                }
+                            }
+                            .padding(.leading, 10)
+                        }
                     }
                     
                     Divider()

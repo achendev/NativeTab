@@ -21,6 +21,10 @@ struct AppConfig {
         static let thirdActivationToOrigin = "thirdActivationToOrigin"
         static let escToTerminal = "escToTerminal"
         
+        static let enableTerminalToggleShortcut = "enableTerminalToggleShortcut"
+        static let terminalToggleShortcutKey = "terminalToggleShortcutKey"
+        static let terminalToggleShortcutModifier = "terminalToggleShortcutModifier"
+        
         static let enableClipboardManager = "enableClipboardManager"
         static let clipboardShortcutKey = "clipboardShortcutKey"
         static let clipboardShortcutModifier = "clipboardShortcutModifier"
@@ -59,6 +63,10 @@ struct AppConfig {
         Keys.secondActivationToTerminal: true,
         Keys.thirdActivationToOrigin: true,
         Keys.escToTerminal: false,
+        
+        Keys.enableTerminalToggleShortcut: true,
+        Keys.terminalToggleShortcutKey: "h",
+        Keys.terminalToggleShortcutModifier: "command",
         
         Keys.enableClipboardManager: false,
         Keys.clipboardShortcutKey: "u",

@@ -333,7 +333,47 @@ func keyboardEventCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGE
         }
     }
     
-    // CHECK 2: Clipboard Shortcut
+    // CHECK 2: Terminal Toggle Shortcut
+    if defaults.bool(forKey: AppConfig.Keys.enableTerminalToggleShortcut) {
+        let toggleKey = defaults.string(forKey: AppConfig.Keys.terminalToggleShortcutKey) ?? "h"
+        let toggleMod = defaults.string(forKey: AppConfig.Keys.terminalToggleShortcutModifier) ?? "command"
+        
+        if let toggleCode = KeyboardInterceptor.getKeyCode(for: toggleKey),
+           keyCode == Int64(toggleCode),
+           isModifierMatch(flags: flags, targetStr: toggleMod) {
+            
+            if isTerminalFront {
+                // Return to the origin app
+                if let originID = savedOriginBundleID,
+                   originID != "com.apple.Terminal",
+                   originID != Bundle.main.bundleIdentifier {
+                    if debug { print("DEBUG: Terminal Toggle: Terminal -> Origin (\(originID))") }
+                    DispatchQueue.main.async {
+                        activateApp(bundleID: originID)
+                    }
+                    return nil
+                } else {
+                    // Fallback to not intercepting if no origin is known (allows native Cmd+H hide)
+                    if debug { print("DEBUG: Terminal Toggle: No origin saved, passing event.") }
+                    return Unmanaged.passUnretained(event)
+                }
+            } else {
+                // Save current app as origin and jump to Terminal
+                if !isFineTermFront {
+                    if let app = frontApp, let bundleID = app.bundleIdentifier,
+                       bundleID != "com.apple.Terminal",
+                       bundleID != Bundle.main.bundleIdentifier {
+                        savedOriginBundleID = bundleID
+                        if debug { print("DEBUG: Terminal Toggle: Origin (\(bundleID)) -> Terminal") }
+                    }
+                }
+                activateTerminal()
+                return nil
+            }
+        }
+    }
+    
+    // CHECK 3: Clipboard Shortcut
     if defaults.bool(forKey: AppConfig.Keys.enableClipboardManager) {
         let clipKey = defaults.string(forKey: AppConfig.Keys.clipboardShortcutKey) ?? "u"
         let clipMod = defaults.string(forKey: AppConfig.Keys.clipboardShortcutModifier) ?? "command"
