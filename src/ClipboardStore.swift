@@ -6,8 +6,11 @@ import Cocoa
 struct ClipboardStats {
     let totalItems: Int
     let imageCount: Int
-    let historySizeBytes: Int64
-    let blobsSizeBytes: Int64
+    let textBlobCount: Int
+    let historyDiskSizeBytes: Int64
+    let blobsDiskSizeBytes: Int64
+    let imageContentSizeBytes: Int64
+    let textBlobContentSizeBytes: Int64
 }
 
 class ClipboardStore: ObservableObject {
@@ -280,13 +283,36 @@ class ClipboardStore: ObservableObject {
         let historySize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int64) ?? 0
         let blobsSize = (try? FileManager.default.attributesOfItem(atPath: blobsURL.path)[.size] as? Int64) ?? 0
         
-        let images = history.filter { $0.type == .image }.count
+        var imgCount = 0
+        var txtBlobCount = 0
+        var imgBytes: Int64 = 0
+        var txtBlobBytes: Int64 = 0
+        
+        for item in history {
+            if item.type == .image {
+                imgCount += 1
+                if let thumb = item.thumbnailData {
+                    imgBytes += Int64(thumb.count)
+                }
+                if let blob = blobs[item.id] {
+                    imgBytes += Int64(blob.utf8.count)
+                }
+            } else {
+                if let blob = blobs[item.id] {
+                    txtBlobCount += 1
+                    txtBlobBytes += Int64(blob.utf8.count)
+                }
+            }
+        }
         
         return ClipboardStats(
             totalItems: history.count,
-            imageCount: images,
-            historySizeBytes: historySize,
-            blobsSizeBytes: blobsSize
+            imageCount: imgCount,
+            textBlobCount: txtBlobCount,
+            historyDiskSizeBytes: historySize,
+            blobsDiskSizeBytes: blobsSize,
+            imageContentSizeBytes: imgBytes,
+            textBlobContentSizeBytes: txtBlobBytes
         )
     }
     

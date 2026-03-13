@@ -271,14 +271,20 @@ struct SettingsView: View {
                                         HStack {
                                             Text("Items: \(s.totalItems)")
                                             Spacer()
-                                            Text("Images: \(s.imageCount)")
+                                            Text("Index File: \(formatBytes(s.historyDiskSizeBytes))")
                                         }
                                         .font(.caption)
                                         
                                         HStack {
-                                            Text("Index Size: \(formatBytes(s.historySizeBytes))")
+                                            Text("Images: \(s.imageCount) (\(formatBytes(s.imageContentSizeBytes)))")
                                             Spacer()
-                                            Text("Big Blobs: \(formatBytes(s.blobsSizeBytes))")
+                                            Text("Blobs File: \(formatBytes(s.blobsDiskSizeBytes))")
+                                        }
+                                        .font(.caption)
+                                        
+                                        HStack {
+                                            Text("Big Blobs: \(s.textBlobCount) (\(formatBytes(s.textBlobContentSizeBytes)))")
+                                            Spacer()
                                         }
                                         .font(.caption)
                                     }
